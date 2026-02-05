@@ -8,42 +8,46 @@ import { IconSymbol } from '@/components/IconSymbol';
 
 export default function PaymentScreen() {
   const router = useRouter();
-  const { serviceId, serviceName, originalPrice, finalPrice, flow, selectedOption, formData } = useLocalSearchParams();
+  const params = useLocalSearchParams();
   
   const [loading, setLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [showSimulationModal, setShowSimulationModal] = useState(false);
+
+  // Extract params
+  const serviceId = params.serviceId as string;
+  const serviceName = params.serviceName as string;
+  const totalPrice = params.totalPrice as string;
+  const printJobId = params.printJobId as string;
 
   const handlePayment = async () => {
-    console.log('[Payment] Processing payment...');
+    console.log('[Payment] Showing simulation modal for testing...');
+    setShowSimulationModal(true);
+  };
+
+  const handleSimulatePayment = async (approved: boolean) => {
+    setShowSimulationModal(false);
+    
+    if (!approved) {
+      setErrorMessage('Pagamento cancelado para teste.');
+      setShowErrorModal(true);
+      return;
+    }
+
+    console.log('[Payment] Simulating payment approval...');
     setLoading(true);
 
     try {
-      const { authenticatedPost } = await import('@/utils/api');
+      // Simulate payment processing delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Parse formData from string
-      const parsedFormData = formData ? JSON.parse(formData as string) : {};
-      
-      // Create order via API
-      const orderData = {
-        serviceId: serviceId as string,
-        flow: flow as 'fazemos' | 'sozinho',
-        selectedOption: selectedOption as 'pdf' | 'pdf_impressao',
-        formData: parsedFormData,
-        customerData: parsedFormData, // Also send as customerData for backward compatibility
-        totalPrice: priceFinal.toString(),
-      };
-      
-      console.log('[Payment] Creating order:', orderData);
-      const response = await authenticatedPost('/api/orders', orderData);
-      
-      console.log('[Payment] Order created successfully:', response);
+      console.log('[Payment] Payment simulated successfully');
       setShowSuccessModal(true);
     } catch (error: any) {
-      console.error('[Payment] Error creating order:', error);
-      // Show error to user
-      setErrorMessage(error.message || 'Erro ao criar pedido. Por favor, tente novamente.');
+      console.error('[Payment] Error simulating payment:', error);
+      setErrorMessage(error.message || 'Erro ao processar pagamento. Por favor, tente novamente.');
       setShowErrorModal(true);
     } finally {
       setLoading(false);
@@ -55,14 +59,8 @@ export default function PaymentScreen() {
     router.push('/(tabs)/orders');
   };
 
-  const priceOriginal = parseFloat(originalPrice as string);
-  const priceFinal = parseFloat(finalPrice as string);
-  const hasDiscount = priceOriginal !== priceFinal;
-  
-  const formattedOriginalPrice = `R$ ${priceOriginal.toFixed(2)}`;
-  const formattedFinalPrice = `R$ ${priceFinal.toFixed(2)}`;
-  const flowText = flow === 'sozinho' ? 'Faça Sozinho' : 'Fazemos pra Você';
-  const optionText = selectedOption === 'pdf' ? 'Só PDF' : 'PDF + Impressão';
+  const priceValue = parseFloat(totalPrice);
+  const formattedPrice = `R$ ${priceValue.toFixed(2)}`;
 
   return (
     <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
@@ -81,7 +79,7 @@ export default function PaymentScreen() {
               ios_icon_name="creditcard.fill" 
               android_material_icon_name="payment" 
               size={48} 
-              color={colors.primary} 
+              color={colors.secondary} 
             />
             <Text style={styles.headerTitle}>Resumo do Pedido</Text>
           </View>
@@ -92,35 +90,11 @@ export default function PaymentScreen() {
               <Text style={styles.summaryLabel}>Serviço:</Text>
               <Text style={styles.summaryValue}>{serviceName}</Text>
             </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Modalidade:</Text>
-              <Text style={styles.summaryValue}>{flowText}</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Entrega:</Text>
-              <Text style={styles.summaryValue}>{optionText}</Text>
-            </View>
-            
-            {hasDiscount && (
-              <>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Preço original:</Text>
-                  <Text style={styles.originalPriceText}>{formattedOriginalPrice}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.discountLabel}>Desconto (20%):</Text>
-                  <Text style={styles.discountValue}>
-                    - R$ {(priceOriginal - priceFinal).toFixed(2)}
-                  </Text>
-                </View>
-              </>
-            )}
             
             <View style={styles.summaryDivider} />
             <View style={styles.summaryRow}>
               <Text style={styles.totalLabel}>Total a pagar:</Text>
-              <Text style={styles.totalValue}>{formattedFinalPrice}</Text>
+              <Text style={styles.totalValue}>{formattedPrice}</Text>
             </View>
           </View>
 
@@ -132,7 +106,7 @@ export default function PaymentScreen() {
               ios_icon_name="qrcode" 
               android_material_icon_name="qr-code" 
               size={40} 
-              color={colors.primary} 
+              color={colors.secondary} 
             />
             <View style={styles.paymentMethodInfo}>
               <Text style={styles.paymentMethodTitle}>Pix</Text>
@@ -144,8 +118,21 @@ export default function PaymentScreen() {
               ios_icon_name="checkmark.circle.fill" 
               android_material_icon_name="check-circle" 
               size={28} 
-              color={colors.primary} 
+              color={colors.secondary} 
             />
+          </View>
+
+          {/* Test Mode Banner */}
+          <View style={styles.testBanner}>
+            <IconSymbol 
+              ios_icon_name="exclamationmark.triangle.fill" 
+              android_material_icon_name="warning" 
+              size={24} 
+              color={colors.accent} 
+            />
+            <Text style={styles.testBannerText}>
+              Modo de Teste: O pagamento será simulado para você testar o fluxo completo
+            </Text>
           </View>
 
           {/* Info Card */}
@@ -154,10 +141,10 @@ export default function PaymentScreen() {
               ios_icon_name="info.circle.fill" 
               android_material_icon_name="info" 
               size={24} 
-              color={colors.primary} 
+              color={colors.secondary} 
             />
             <Text style={styles.infoText}>
-              Após a confirmação do pagamento, você receberá uma notificação e poderá acompanhar o status do seu pedido.
+              Após a confirmação do pagamento, você poderá selecionar a loja ou parceiro mais próximo para retirada.
             </Text>
           </View>
 
@@ -171,7 +158,7 @@ export default function PaymentScreen() {
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <>
-                <Text style={styles.paymentButtonText}>Gerar Pix</Text>
+                <Text style={styles.paymentButtonText}>Simular Pagamento Pix</Text>
                 <IconSymbol 
                   ios_icon_name="qrcode" 
                   android_material_icon_name="qr-code" 
@@ -183,6 +170,57 @@ export default function PaymentScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Simulation Modal */}
+      <Modal
+        visible={showSimulationModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSimulationModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.simulationIcon}>
+              <IconSymbol 
+                ios_icon_name="qrcode" 
+                android_material_icon_name="qr-code" 
+                size={64} 
+                color={colors.secondary} 
+              />
+            </View>
+            <Text style={styles.modalTitle}>Simulação de Pagamento</Text>
+            <Text style={styles.modalMessage}>
+              Este é um ambiente de teste. Escolha se deseja aprovar ou recusar o pagamento:
+            </Text>
+            <View style={styles.simulationButtons}>
+              <TouchableOpacity
+                style={[styles.simulationButton, styles.approveButton]}
+                onPress={() => handleSimulatePayment(true)}
+              >
+                <IconSymbol 
+                  ios_icon_name="checkmark.circle.fill" 
+                  android_material_icon_name="check-circle" 
+                  size={24} 
+                  color="#FFFFFF" 
+                />
+                <Text style={styles.simulationButtonText}>Aprovar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.simulationButton, styles.rejectButton]}
+                onPress={() => handleSimulatePayment(false)}
+              >
+                <IconSymbol 
+                  ios_icon_name="xmark.circle.fill" 
+                  android_material_icon_name="cancel" 
+                  size={24} 
+                  color="#FFFFFF" 
+                />
+                <Text style={styles.simulationButtonText}>Recusar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Success Modal */}
       <Modal
@@ -198,18 +236,18 @@ export default function PaymentScreen() {
                 ios_icon_name="checkmark.circle.fill" 
                 android_material_icon_name="check-circle" 
                 size={64} 
-                color={colors.primary} 
+                color={colors.secondary} 
               />
             </View>
-            <Text style={styles.modalTitle}>Pedido Criado!</Text>
+            <Text style={styles.modalTitle}>Pagamento Aprovado!</Text>
             <Text style={styles.modalMessage}>
-              Seu pedido foi criado com sucesso. Aguarde a confirmação do pagamento Pix.
+              Seu pagamento foi processado com sucesso. Agora você pode selecionar onde deseja retirar seu pedido.
             </Text>
             <TouchableOpacity
               style={styles.modalButton}
               onPress={handleSuccessClose}
             >
-              <Text style={styles.modalButtonText}>Ver Meus Pedidos</Text>
+              <Text style={styles.modalButtonText}>Selecionar Loja/Parceiro</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -296,21 +334,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.textSecondary + '30',
     marginVertical: 12,
   },
-  originalPriceText: {
-    fontSize: 15,
-    color: colors.textSecondary,
-    textDecorationLine: 'line-through',
-  },
-  discountLabel: {
-    fontSize: 15,
-    color: colors.accent,
-    fontWeight: '600',
-  },
-  discountValue: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.accent,
-  },
   totalLabel: {
     fontSize: 18,
     fontWeight: '700',
@@ -319,7 +342,7 @@ const styles = StyleSheet.create({
   totalValue: {
     fontSize: 24,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.secondary,
   },
   sectionTitle: {
     fontSize: 18,
@@ -333,9 +356,9 @@ const styles = StyleSheet.create({
     padding: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
     borderWidth: 2,
-    borderColor: colors.primary,
+    borderColor: colors.secondary,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -356,8 +379,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
   },
+  testBanner: {
+    backgroundColor: colors.accent + '20',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.accent + '40',
+  },
+  testBannerText: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.text,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
   infoCard: {
-    backgroundColor: colors.primary + '15',
+    backgroundColor: colors.secondary + '15',
     borderRadius: 12,
     padding: 16,
     flexDirection: 'row',
@@ -365,7 +406,7 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: colors.primary + '40',
+    borderColor: colors.secondary + '40',
   },
   infoText: {
     flex: 1,
@@ -374,7 +415,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   paymentButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.secondary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -411,6 +452,9 @@ const styles = StyleSheet.create({
   successIcon: {
     marginBottom: 20,
   },
+  simulationIcon: {
+    marginBottom: 20,
+  },
   modalTitle: {
     fontSize: 24,
     fontWeight: '700',
@@ -425,8 +469,34 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     lineHeight: 22,
   },
+  simulationButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  simulationButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  approveButton: {
+    backgroundColor: colors.secondary,
+  },
+  rejectButton: {
+    backgroundColor: colors.error,
+  },
+  simulationButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
   modalButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.secondary,
     paddingVertical: 16,
     paddingHorizontal: 32,
     borderRadius: 12,

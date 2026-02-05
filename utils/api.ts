@@ -1,3 +1,4 @@
+
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
@@ -77,13 +78,28 @@ export const apiCall = async <T = any>(
 
     const response = await fetch(url, fetchOptions);
 
-    if (!response.ok) {
+    // Try to parse as JSON first
+    let data;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      // If not JSON, get text and try to parse it
       const text = await response.text();
-      console.error("[API] Error response:", response.status, text);
-      throw new Error(`API error: ${response.status} - ${text}`);
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // If parsing fails, return error with the text
+        console.error("[API] Non-JSON response:", text);
+        throw new Error(`Erro no servidor: ${response.status}`);
+      }
     }
 
-    const data = await response.json();
+    if (!response.ok) {
+      console.error("[API] Error response:", response.status, data);
+      throw new Error(data.error || `API error: ${response.status}`);
+    }
+
     console.log("[API] Success:", data);
     return data;
   } catch (error) {
@@ -235,15 +251,38 @@ export const authenticatedDelete = async <T = any>(endpoint: string, data: any =
 };
 
 /**
- * Upload a single file with progress tracking
+ * Sanitize filename for upload
+ * Removes special characters and normalizes the name
+ */
+const sanitizeFilename = (filename: string): string => {
+  // Remove path separators
+  let sanitized = filename.replace(/[/\\]/g, '_');
+  
+  // Keep only alphanumeric, dots, dashes, underscores, and spaces
+  sanitized = sanitized.replace(/[^a-zA-Z0-9.\-_ ]/g, '');
+  
+  // Limit length to 200 characters
+  if (sanitized.length > 200) {
+    const ext = sanitized.split('.').pop();
+    const nameWithoutExt = sanitized.substring(0, sanitized.lastIndexOf('.'));
+    sanitized = nameWithoutExt.substring(0, 190) + '.' + ext;
+  }
+  
+  return sanitized || 'file';
+};
+
+/**
+ * Upload a single file with progress tracking and retry logic
  * 
  * @param file - File object with uri, name, and type
  * @param onProgress - Optional callback for upload progress (0-100)
+ * @param retries - Number of retry attempts (default: 3)
  * @returns Upload response with url, filename, size, mimeType, pageCount
  */
 export const uploadFile = async (
   file: { uri: string; name: string; type: string },
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  retries: number = 3
 ): Promise<{
   success: boolean;
   url?: string;
@@ -258,47 +297,99 @@ export const uploadFile = async (
     throw new Error("Backend URL not configured. Please rebuild the app.");
   }
 
-  const formData = new FormData();
-  formData.append('file', file as any);
-
   const token = await getBearerToken();
   const url = `${BACKEND_URL}/api/upload/document`;
 
-  console.log('[API] Uploading file:', file.name);
+  console.log('[API] Uploading file:', file.name, 'Size:', file.uri.length, 'bytes (URI length)');
 
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-      body: formData,
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('[API] Upload failed:', response.status, data);
-      return {
-        success: false,
-        error: data.error || `Upload failed: ${response.status}`,
-        code: data.code || 'UPLOAD_FAILED',
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const formData = new FormData();
+      
+      // Sanitize filename
+      const sanitizedName = sanitizeFilename(file.name);
+      
+      // Create file object for FormData
+      const fileObj: any = {
+        uri: file.uri,
+        name: sanitizedName,
+        type: file.type || 'application/octet-stream',
       };
-    }
+      
+      formData.append('file', fileObj);
 
-    console.log('[API] Upload successful:', data);
-    return {
-      success: true,
-      ...data,
-    };
-  } catch (error) {
-    console.error('[API] Upload error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Upload failed',
-      code: 'NETWORK_ERROR',
-    };
+      console.log(`[API] Upload attempt ${attempt}/${retries} for:`, sanitizedName);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          // Don't set Content-Type - let the browser/RN set it with boundary
+        },
+        body: formData,
+      });
+
+      // Parse response
+      let data;
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        console.error('[API] Non-JSON response:', text.substring(0, 200));
+        throw new Error('Resposta inválida do servidor');
+      }
+
+      if (!response.ok) {
+        console.error('[API] Upload failed:', response.status, data);
+        
+        // If it's a client error (4xx), don't retry
+        if (response.status >= 400 && response.status < 500) {
+          return {
+            success: false,
+            error: data.error || `Upload falhou: ${response.status}`,
+            code: data.code || 'UPLOAD_FAILED',
+          };
+        }
+        
+        // For server errors (5xx), retry
+        throw new Error(data.error || `Erro do servidor: ${response.status}`);
+      }
+
+      console.log('[API] Upload successful:', data);
+      if (onProgress) {
+        onProgress(100);
+      }
+      
+      return {
+        success: true,
+        ...data,
+      };
+    } catch (error) {
+      console.error(`[API] Upload error (attempt ${attempt}/${retries}):`, error);
+      
+      // If this was the last attempt, return error
+      if (attempt === retries) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Upload falhou',
+          code: 'NETWORK_ERROR',
+        };
+      }
+      
+      // Wait before retrying (exponential backoff: 1s, 2s, 4s)
+      const delay = Math.pow(2, attempt - 1) * 1000;
+      console.log(`[API] Retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
+
+  // Should never reach here, but just in case
+  return {
+    success: false,
+    error: 'Upload falhou após múltiplas tentativas',
+    code: 'MAX_RETRIES_EXCEEDED',
+  };
 };
 
 /**
@@ -355,7 +446,7 @@ export const uploadMultipleFiles = async (
       } else {
         failed.push({
           filename: file.name,
-          error: result.error || 'Upload failed',
+          error: result.error || 'Upload falhou',
         });
       }
       completed++;
@@ -381,6 +472,8 @@ export const getErrorMessage = (code?: string, defaultMessage?: string): string 
     'NETWORK_ERROR': 'Erro de conexão. Verifique sua internet e tente novamente.',
     'UPLOAD_FAILED': 'Falha no upload. Tente novamente.',
     'UNAUTHORIZED': 'Você precisa fazer login para continuar.',
+    'NO_FILE': 'Nenhum arquivo foi selecionado.',
+    'MAX_RETRIES_EXCEEDED': 'Upload falhou após múltiplas tentativas. Verifique sua conexão.',
   };
 
   return errorMessages[code || ''] || defaultMessage || 'Ocorreu um erro. Tente novamente.';
