@@ -30,14 +30,19 @@ export default function RootLayout() {
   const [loaded] = useFonts({
     SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
   });
+  const [authInitialized, setAuthInitialized] = React.useState(false);
 
   useEffect(() => {
     if (loaded) {
-      SplashScreen.hideAsync();
+      // Give AuthProvider time to initialize before hiding splash
+      setTimeout(() => {
+        setAuthInitialized(true);
+        SplashScreen.hideAsync();
+      }, 500);
     }
   }, [loaded]);
 
-  if (!loaded) {
+  if (!loaded || !authInitialized) {
     return null;
   }
 
@@ -89,18 +94,26 @@ export default function RootLayout() {
                   }} 
                 />
                 <Stack.Screen 
-                  name="new-order" 
+                  name="faca-sozinho-form" 
                   options={{ 
                     headerShown: true,
-                    title: "Novo Pedido",
+                    title: "Faça Sozinho",
                     headerBackTitle: "Voltar"
                   }} 
                 />
                 <Stack.Screen 
-                  name="order-detail" 
+                  name="fazemos-pra-voce-form" 
                   options={{ 
                     headerShown: true,
-                    title: "Detalhes do Pedido",
+                    title: "Fazemos pra Você",
+                    headerBackTitle: "Voltar"
+                  }} 
+                />
+                <Stack.Screen 
+                  name="payment" 
+                  options={{ 
+                    headerShown: true,
+                    title: "Pagamento",
                     headerBackTitle: "Voltar"
                   }} 
                 />

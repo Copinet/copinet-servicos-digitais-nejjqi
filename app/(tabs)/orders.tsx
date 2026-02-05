@@ -16,6 +16,8 @@ export default function OrdersScreen() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -62,8 +64,10 @@ export default function OrdersScreen() {
       const orderDetail = await authenticatedGet(`/api/orders/${orderId}`);
       setSelectedOrder(orderDetail);
       setShowDetailModal(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('[OrdersScreen] Error loading order detail:', error);
+      setErrorMessage(error.message || 'Erro ao carregar detalhes do pedido');
+      setShowErrorModal(true);
     }
   };
 
@@ -82,8 +86,11 @@ export default function OrdersScreen() {
       setShowDetailModal(false);
       setSelectedOrder(null);
       console.log('[OrdersScreen] Order deleted successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('[OrdersScreen] Error deleting order:', error);
+      setErrorMessage(error.message || 'Erro ao cancelar pedido');
+      setShowErrorModal(true);
+      setShowDeleteModal(false);
     } finally {
       setDeleting(false);
     }
@@ -372,6 +379,35 @@ export default function OrdersScreen() {
                 )}
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Error Modal */}
+      <Modal
+        visible={showErrorModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowErrorModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModal}>
+            <IconSymbol 
+              ios_icon_name="exclamationmark.circle.fill" 
+              android_material_icon_name="error" 
+              size={48} 
+              color={colors.error} 
+            />
+            <Text style={styles.confirmTitle}>Erro</Text>
+            <Text style={styles.confirmText}>
+              {errorMessage}
+            </Text>
+            <TouchableOpacity 
+              style={[styles.confirmButton, styles.confirmButtonDanger, { width: '100%' }]}
+              onPress={() => setShowErrorModal(false)}
+            >
+              <Text style={styles.confirmButtonText}>OK</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>

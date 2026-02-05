@@ -59,9 +59,10 @@ export default function ServicesScreen() {
 
   const handleServicePress = (service: any) => {
     console.log('ServicesScreen: Service pressed', service.id);
-    // Navigate to services tab with category filter instead of detail page
-    // This is more appropriate for the current UI flow
-    router.push('/(tabs)/services');
+    router.push({
+      pathname: '/service-detail',
+      params: { serviceId: service.id }
+    });
   };
 
   const formatPrice = (price: number) => {
