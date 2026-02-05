@@ -273,11 +273,12 @@ const sanitizeFilename = (filename: string): string => {
 
 /**
  * Upload a single file with progress tracking and retry logic
+ * Server-side page counting - no local processing to avoid freezing
  * 
  * @param file - File object with uri, name, and type
  * @param onProgress - Optional callback for upload progress (0-100)
  * @param retries - Number of retry attempts (default: 3)
- * @returns Upload response with url, filename, size, mimeType, pageCount
+ * @returns Upload response with url, filename, size, mimeType, pageCount (from server)
  */
 export const uploadFile = async (
   file: { uri: string; name: string; type: string },
@@ -298,9 +299,19 @@ export const uploadFile = async (
   }
 
   const token = await getBearerToken();
+  
+  if (!token) {
+    console.error('[API] No authentication token found');
+    return {
+      success: false,
+      error: 'Você precisa fazer login para fazer upload de arquivos',
+      code: 'UNAUTHORIZED',
+    };
+  }
+
   const url = `${BACKEND_URL}/api/upload/document`;
 
-  console.log('[API] Uploading file:', file.name, 'Size:', file.uri.length, 'bytes (URI length)');
+  console.log('[API] Uploading file:', file.name, 'Token present:', !!token);
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -319,15 +330,26 @@ export const uploadFile = async (
       formData.append('file', fileObj);
 
       console.log(`[API] Upload attempt ${attempt}/${retries} for:`, sanitizedName);
+      console.log('[API] Auth token (first 20 chars):', token.substring(0, 20) + '...');
+
+      // Report initial progress
+      if (onProgress) {
+        onProgress(10);
+      }
 
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          // Don't set Content-Type - let the browser/RN set it with boundary
+          // Don't set Content-Type - let the browser/RN set it with boundary for multipart/form-data
         },
         body: formData,
       });
+
+      // Report upload complete, waiting for processing
+      if (onProgress) {
+        onProgress(60);
+      }
 
       // Parse response
       let data;
@@ -343,6 +365,15 @@ export const uploadFile = async (
       if (!response.ok) {
         console.error('[API] Upload failed:', response.status, data);
         
+        // Special handling for auth errors
+        if (response.status === 401) {
+          return {
+            success: false,
+            error: 'Sessão expirada. Por favor, faça login novamente.',
+            code: 'UNAUTHORIZED',
+          };
+        }
+        
         // If it's a client error (4xx), don't retry
         if (response.status >= 400 && response.status < 500) {
           return {
@@ -356,7 +387,7 @@ export const uploadFile = async (
         throw new Error(data.error || `Erro do servidor: ${response.status}`);
       }
 
-      console.log('[API] Upload successful:', data);
+      console.log('[API] Upload successful. Server processed pages:', data.pageCount);
       if (onProgress) {
         onProgress(100);
       }
@@ -394,14 +425,17 @@ export const uploadFile = async (
 
 /**
  * Upload multiple files in parallel with batch processing
+ * Server handles page counting - keeps loading state active until all files are processed
  * 
  * @param files - Array of file objects with uri, name, and type
  * @param onProgress - Optional callback for overall progress (0-100)
+ * @param onFileProgress - Optional callback for individual file progress
  * @returns Upload results with successful uploads and failed uploads
  */
 export const uploadMultipleFiles = async (
   files: Array<{ uri: string; name: string; type: string }>,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  onFileProgress?: (fileIndex: number, fileName: string, status: 'uploading' | 'processing' | 'complete' | 'failed') => void
 ): Promise<{
   uploads: Array<{
     url: string;
@@ -413,6 +447,7 @@ export const uploadMultipleFiles = async (
   failed: Array<{
     filename: string;
     error: string;
+    code?: string;
   }>;
 }> => {
   if (!isBackendConfigured()) {
@@ -425,16 +460,33 @@ export const uploadMultipleFiles = async (
   const failed: any[] = [];
   let completed = 0;
 
-  // Upload files in parallel (max 3 at a time to avoid overwhelming the server)
-  const batchSize = 3;
+  // Upload files in parallel (max 2 at a time for large files to avoid timeouts)
+  const batchSize = 2;
   for (let i = 0; i < files.length; i += batchSize) {
     const batch = files.slice(i, i + batchSize);
+    
     const results = await Promise.all(
-      batch.map(file => uploadFile(file))
+      batch.map((file, batchIndex) => {
+        const fileIndex = i + batchIndex;
+        
+        // Notify that file upload is starting
+        if (onFileProgress) {
+          onFileProgress(fileIndex, file.name, 'uploading');
+        }
+        
+        return uploadFile(file, (fileProgress) => {
+          // Individual file progress
+          if (fileProgress >= 60 && onFileProgress) {
+            onFileProgress(fileIndex, file.name, 'processing');
+          }
+        });
+      })
     );
 
     results.forEach((result, index) => {
       const file = batch[index];
+      const fileIndex = i + index;
+      
       if (result.success && result.url) {
         uploads.push({
           url: result.url,
@@ -443,15 +495,31 @@ export const uploadMultipleFiles = async (
           mimeType: result.mimeType || file.type,
           pageCount: result.pageCount || 1,
         });
+        
+        if (onFileProgress) {
+          onFileProgress(fileIndex, file.name, 'complete');
+        }
+        
+        console.log(`[API] File ${fileIndex + 1}/${files.length} uploaded successfully:`, file.name, 'Pages:', result.pageCount);
       } else {
         failed.push({
           filename: file.name,
           error: result.error || 'Upload falhou',
+          code: result.code,
         });
+        
+        if (onFileProgress) {
+          onFileProgress(fileIndex, file.name, 'failed');
+        }
+        
+        console.error(`[API] File ${fileIndex + 1}/${files.length} failed:`, file.name, result.error);
       }
+      
       completed++;
       if (onProgress) {
-        onProgress(Math.round((completed / files.length) * 100));
+        const overallProgress = Math.round((completed / files.length) * 100);
+        onProgress(overallProgress);
+        console.log(`[API] Overall progress: ${overallProgress}% (${completed}/${files.length})`);
       }
     });
   }
@@ -473,6 +541,7 @@ export const getErrorMessage = (code?: string, defaultMessage?: string): string 
     'NETWORK_ERROR': 'Erro de conexão. Verifique sua internet e tente novamente.',
     'UPLOAD_FAILED': 'Falha no upload. Tente novamente.',
     'UNAUTHORIZED': 'Você precisa fazer login para continuar.',
+    'STORAGE_PERMISSION_DENIED': 'Erro de permissão no armazenamento. Entre em contato com o suporte.',
     'NO_FILE': 'Nenhum arquivo foi selecionado.',
     'MAX_RETRIES_EXCEEDED': 'Upload falhou após múltiplas tentativas. Verifique sua conexão.',
   };

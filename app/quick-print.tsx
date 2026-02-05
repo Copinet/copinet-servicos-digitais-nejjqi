@@ -26,6 +26,8 @@ export default function QuickPrintScreen() {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [notes, setNotes] = useState('');
   const [totalPrice, setTotalPrice] = useState(0);
   const [pricing, setPricing] = useState<any>(null);
@@ -150,6 +152,9 @@ export default function QuickPrintScreen() {
 
   const uploadFiles = async (assets: any[]) => {
     setUploading(true);
+    setUploadProgress(0);
+    setUploadStatus('Preparando arquivos...');
+    
     try {
       const { uploadMultipleFiles, getErrorMessage } = await import('@/utils/api');
       
@@ -161,9 +166,25 @@ export default function QuickPrintScreen() {
 
       console.log('QuickPrintScreen: Uploading files:', filesToUpload.length);
       
-      const result = await uploadMultipleFiles(filesToUpload, (progress) => {
-        console.log('QuickPrintScreen: Upload progress:', progress + '%');
-      });
+      const result = await uploadMultipleFiles(
+        filesToUpload,
+        (progress) => {
+          setUploadProgress(progress);
+          console.log('QuickPrintScreen: Overall progress:', progress + '%');
+        },
+        (fileIndex, fileName, status) => {
+          // Update status message based on file progress
+          if (status === 'uploading') {
+            setUploadStatus(`Enviando ${fileName}...`);
+          } else if (status === 'processing') {
+            setUploadStatus(`Processando ${fileName}... (contando páginas no servidor)`);
+          } else if (status === 'complete') {
+            setUploadStatus(`${fileName} concluído!`);
+          } else if (status === 'failed') {
+            setUploadStatus(`Erro em ${fileName}`);
+          }
+        }
+      );
 
       console.log('QuickPrintScreen: Upload complete:', result);
 
@@ -174,7 +195,7 @@ export default function QuickPrintScreen() {
           name: upload.filename,
           size: upload.size,
           mimeType: upload.mimeType,
-          pageCount: upload.pageCount,
+          pageCount: upload.pageCount, // Server-counted pages
           url: upload.url,
           colorMode: 'bw',
           copies: 1,
@@ -182,15 +203,18 @@ export default function QuickPrintScreen() {
         }));
 
         setFiles(prev => [...prev, ...newFiles]);
+        setUploadStatus(`${result.uploads.length} arquivo(s) adicionado(s) com sucesso!`);
       }
 
       // Show errors for failed uploads
       if (result.failed.length > 0) {
         const failedNames = result.failed.map(f => f.filename).join(', ');
-        const errorMsg = result.failed[0].error;
+        const firstError = result.failed[0];
+        const errorMsg = getErrorMessage(firstError.code, firstError.error);
+        
         showError(
           'Alguns arquivos falharam',
-          `Não foi possível fazer upload de: ${failedNames}\n\nErro: ${errorMsg}`
+          `Não foi possível fazer upload de: ${failedNames}\n\n${errorMsg}`
         );
       }
 
@@ -204,6 +228,8 @@ export default function QuickPrintScreen() {
       showError('Erro no Upload', getErrorMessage('UPLOAD_FAILED'));
     } finally {
       setUploading(false);
+      setUploadProgress(0);
+      setUploadStatus('');
     }
   };
 
@@ -339,8 +365,16 @@ export default function QuickPrintScreen() {
 
             {uploading && (
               <View style={styles.uploadingIndicator}>
-                <ActivityIndicator size="small" color={colors.secondary} />
-                <Text style={styles.uploadingText}>Fazendo upload...</Text>
+                <ActivityIndicator size="large" color={colors.secondary} />
+                <Text style={styles.uploadingText}>{uploadStatus}</Text>
+                {uploadProgress > 0 && (
+                  <View style={styles.progressBarContainer}>
+                    <View style={[styles.progressBar, { width: `${uploadProgress}%` }]} />
+                  </View>
+                )}
+                <Text style={styles.uploadingSubtext}>
+                  {uploadProgress}% - Aguarde, o servidor está processando os arquivos
+                </Text>
               </View>
             )}
           </View>
@@ -579,15 +613,36 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   uploadingIndicator: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 16,
-    gap: 8,
+    padding: 20,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    gap: 12,
   },
   uploadingText: {
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+    textAlign: 'center',
+  },
+  uploadingSubtext: {
+    fontSize: 13,
     color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  progressBarContainer: {
+    width: '100%',
+    height: 8,
+    backgroundColor: colors.background,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: colors.secondary,
+    borderRadius: 4,
   },
   filesSection: {
     marginBottom: 24,
