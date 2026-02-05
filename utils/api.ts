@@ -365,6 +365,15 @@ export const uploadFile = async (
       if (!response.ok) {
         console.error('[API] Upload failed:', response.status, data);
         
+        // Special handling for Payload Too Large (413)
+        if (response.status === 413) {
+          return {
+            success: false,
+            error: getErrorMessage('PAYLOAD_TOO_LARGE'),
+            code: 'PAYLOAD_TOO_LARGE',
+          };
+        }
+        
         // Special handling for auth errors
         if (response.status === 401) {
           return {
@@ -378,7 +387,7 @@ export const uploadFile = async (
         if (response.status >= 400 && response.status < 500) {
           return {
             success: false,
-            error: data.error || `Upload falhou: ${response.status}`,
+            error: data.error || getErrorMessage(data.code) || `Upload falhou: ${response.status}`,
             code: data.code || 'UPLOAD_FAILED',
           };
         }
@@ -533,7 +542,8 @@ export const uploadMultipleFiles = async (
  */
 export const getErrorMessage = (code?: string, defaultMessage?: string): string => {
   const errorMessages: Record<string, string> = {
-    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 150MB.',
+    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 200MB.',
+    'PAYLOAD_TOO_LARGE': 'O arquivo é muito grande para ser enviado. Por favor, reduza o tamanho ou envie em partes menores.',
     'TOO_MANY_PAGES': 'PDF com muitas páginas. O máximo é 1500 páginas.',
     'INVALID_FORMAT': 'Formato de arquivo inválido. Use PDF, Word, ou imagens (JPG, PNG).',
     'PROCESSING_FAILED': 'Não foi possível processar o arquivo. Tente novamente.',
@@ -542,8 +552,12 @@ export const getErrorMessage = (code?: string, defaultMessage?: string): string 
     'UPLOAD_FAILED': 'Falha no upload. Tente novamente.',
     'UNAUTHORIZED': 'Você precisa fazer login para continuar.',
     'STORAGE_PERMISSION_DENIED': 'Erro de permissão no armazenamento. Entre em contato com o suporte.',
+    'STORAGE_UNAUTHORIZED': 'Não autorizado para fazer upload. Verifique sua autenticação.',
+    'STORAGE_ERROR': 'Erro ao salvar arquivo. Tente novamente.',
     'NO_FILE': 'Nenhum arquivo foi selecionado.',
     'MAX_RETRIES_EXCEEDED': 'Upload falhou após múltiplas tentativas. Verifique sua conexão.',
+    'UPLOAD_TIMEOUT': 'Upload excedeu tempo limite de 5 minutos. Tente com um arquivo menor.',
+    'TOO_MANY_FILES': 'Máximo de 10 arquivos por vez.',
   };
 
   return errorMessages[code || ''] || defaultMessage || 'Ocorreu um erro. Tente novamente.';
