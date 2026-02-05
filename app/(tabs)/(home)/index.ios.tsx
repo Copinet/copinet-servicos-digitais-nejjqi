@@ -14,7 +14,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log('HomeScreen: Loading services');
+    console.log('HomeScreen: Loading services, user:', user);
     loadServices();
   }, []);
 
@@ -24,70 +24,29 @@ export default function HomeScreen() {
       const { apiGet } = await import('@/utils/api');
       const data = await apiGet('/api/services');
       
-      // Group services by category for home screen display
-      const categoryMap: Record<string, any> = {};
+      // Filter to show most used services: Impressão rápida, Digitalização, Foto 3x4, Currículo
+      const mostUsedServices = data.filter((service: any) => 
+        ['Impressão Rápida', 'Digitalização de Documento em PDF', 'Foto 3x4', 'Currículo'].includes(service.name)
+      );
       
-      data.forEach((service: any) => {
-        const category = service.category;
-        if (!categoryMap[category]) {
-          categoryMap[category] = {
-            id: category,
-            name: getCategoryName(category),
-            description: getCategoryDescription(category),
-            icon: getCategoryIcon(category),
-            category: category,
-          };
-        }
-      });
-      
-      const groupedServices = Object.values(categoryMap);
-      setServices(groupedServices);
-      console.log('[HomeScreen] Services loaded successfully:', groupedServices.length);
+      setServices(mostUsedServices);
+      console.log('[HomeScreen] Services loaded successfully:', mostUsedServices.length);
     } catch (error) {
       console.error('[HomeScreen] Error loading services:', error);
-      // Fallback to empty array on error
       setServices([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const getCategoryName = (category: string): string => {
-    const names: Record<string, string> = {
-      printing: 'Cópias e Impressões',
-      documents: 'Documentos Oficiais',
-      graphics: 'Serviços Gráficos',
-    };
-    return names[category] || category;
-  };
-
-  const getCategoryDescription = (category: string): string => {
-    const descriptions: Record<string, string> = {
-      printing: 'Cópias coloridas e preto e branco',
-      documents: 'Certidões, RG, CPF e mais',
-      graphics: 'Banners, cartões, convites',
-    };
-    return descriptions[category] || '';
-  };
-
-  const getCategoryIcon = (category: string): string => {
-    const icons: Record<string, string> = {
-      printing: 'print',
-      documents: 'description',
-      graphics: 'image',
-    };
-    return icons[category] || 'description';
-  };
-
   const handleServicePress = (service: any) => {
-    console.log('[HomeScreen] Service category pressed:', service.category);
-    // Navigate to services tab with the category pre-selected
+    console.log('[HomeScreen] Service pressed:', service.name);
     router.push('/(tabs)/services');
   };
 
-  const handleStoresPress = () => {
-    console.log('HomeScreen: Stores button pressed');
-    router.push('/stores-map');
+  const handleOrdersPress = () => {
+    console.log('HomeScreen: Orders button pressed');
+    router.push('/(tabs)/orders');
   };
 
   const handleLoginPress = () => {
@@ -107,16 +66,15 @@ export default function HomeScreen() {
     <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
       <Stack.Screen 
         options={{
-          headerShown: true,
-          title: 'Copinet Serviços Digitais',
-          headerLargeTitle: true,
-          headerStyle: {
-            backgroundColor: colors.backgroundAlt,
-          },
+          headerShown: false,
         }}
       />
       <ScrollView style={commonStyles.container} contentContainerStyle={styles.scrollContent}>
         <View style={commonStyles.section}>
+          {/* App Name */}
+          <Text style={styles.appName}>COPINET SERVIÇOS DIGITAIS</Text>
+
+          {/* Welcome Card */}
           <View style={styles.welcomeCard}>
             <IconSymbol 
               ios_icon_name="sparkles" 
@@ -130,9 +88,10 @@ export default function HomeScreen() {
             </Text>
           </View>
 
+          {/* Login Button - Only show if user is NOT logged in */}
           {!user && (
             <TouchableOpacity 
-              style={[commonStyles.largeButton, styles.loginButton]}
+              style={styles.loginButton}
               onPress={handleLoginPress}
             >
               <IconSymbol 
@@ -141,49 +100,127 @@ export default function HomeScreen() {
                 size={24} 
                 color="#FFFFFF" 
               />
-              <Text style={[commonStyles.largeButtonText, styles.loginButtonText]}>
+              <Text style={styles.loginButtonText}>
                 Entrar ou Cadastrar
               </Text>
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity 
-            style={[commonStyles.largeButton, styles.storesButton]}
-            onPress={handleStoresPress}
-          >
-            <IconSymbol 
-              ios_icon_name="map" 
-              android_material_icon_name="location-on" 
-              size={24} 
-              color="#FFFFFF" 
-            />
-            <Text style={[commonStyles.largeButtonText, styles.storesButtonText]}>
-              Ver Nossas Lojas
-            </Text>
-          </TouchableOpacity>
+          {/* Como Funciona Section */}
+          <View style={styles.howItWorksCard}>
+            <Text style={styles.howItWorksTitle}>Como Funciona</Text>
+            
+            <View style={styles.stepContainer}>
+              <View style={styles.stepNumber}>
+                <Text style={styles.stepNumberText}>1</Text>
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepTitle}>Escolha o serviço</Text>
+                <Text style={styles.stepDescription}>
+                  Navegue pelo catálogo e selecione o que você precisa
+                </Text>
+              </View>
+            </View>
 
-          <Text style={styles.sectionTitle}>Serviços Disponíveis</Text>
+            <View style={styles.stepContainer}>
+              <View style={styles.stepNumber}>
+                <Text style={styles.stepNumberText}>2</Text>
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepTitle}>Faça o pedido</Text>
+                <Text style={styles.stepDescription}>
+                  Escolha a loja mais próxima para retirada
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.stepContainer}>
+              <View style={styles.stepNumber}>
+                <Text style={styles.stepNumberText}>3</Text>
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepTitle}>Pague com Pix</Text>
+                <Text style={styles.stepDescription}>
+                  Pagamento rápido e seguro, sem precisar de cartão
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.stepContainer}>
+              <View style={styles.stepNumber}>
+                <Text style={styles.stepNumberText}>4</Text>
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepTitle}>Retire onde escolheu</Text>
+                <Text style={styles.stepDescription}>
+                  Ou receba o seu documento em PDF aqui mesmo. Você receberá uma notificação quando estiver pronto
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Service Flow Options */}
+          <View style={styles.flowOptionsCard}>
+            <Text style={styles.flowOptionsTitle}>Escolha como prefere</Text>
+            
+            <View style={styles.flowOption}>
+              <IconSymbol 
+                ios_icon_name="hand.raised.fill" 
+                android_material_icon_name="pan-tool" 
+                size={32} 
+                color={colors.secondary} 
+              />
+              <View style={styles.flowOptionContent}>
+                <Text style={styles.flowOptionTitle}>Fazemos pra Você</Text>
+                <Text style={styles.flowOptionDescription}>
+                  Nossos parceiros cuidam de tudo para você
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.flowOption}>
+              <IconSymbol 
+                ios_icon_name="person.fill" 
+                android_material_icon_name="person" 
+                size={32} 
+                color={colors.accent} 
+              />
+              <View style={styles.flowOptionContent}>
+                <Text style={styles.flowOptionTitle}>Faça Sozinho</Text>
+                <Text style={styles.flowOptionDescription}>
+                  20% de desconto em serviços selecionados
+                </Text>
+              </View>
+              <View style={styles.discountBadge}>
+                <Text style={styles.discountBadgeText}>-20%</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Most Used Services */}
+          <Text style={styles.sectionTitle}>Serviços Mais Usados</Text>
 
           {services.map((service, index) => {
             const serviceName = service.name;
-            const serviceDescription = service.description;
+            const servicePrice = service.price;
+            const formattedPrice = `R$ ${servicePrice.toFixed(2)}`;
             
             return (
               <TouchableOpacity
                 key={index}
-                style={commonStyles.serviceCard}
+                style={styles.serviceCard}
                 onPress={() => handleServicePress(service)}
               >
                 <View style={styles.serviceHeader}>
                   <IconSymbol 
-                    ios_icon_name={service.icon} 
-                    android_material_icon_name={service.icon} 
+                    ios_icon_name="doc.text.fill" 
+                    android_material_icon_name="description" 
                     size={40} 
                     color={colors.secondary} 
                   />
                   <View style={styles.serviceInfo}>
                     <Text style={styles.serviceName}>{serviceName}</Text>
-                    <Text style={styles.serviceDescription}>{serviceDescription}</Text>
+                    <Text style={styles.servicePrice}>{formattedPrice}</Text>
                   </View>
                   <IconSymbol 
                     ios_icon_name="chevron.right" 
@@ -196,19 +233,21 @@ export default function HomeScreen() {
             );
           })}
 
-          <View style={styles.infoCard}>
+          {/* View All Orders Button */}
+          <TouchableOpacity 
+            style={styles.ordersButton}
+            onPress={handleOrdersPress}
+          >
             <IconSymbol 
-              ios_icon_name="info.circle" 
-              android_material_icon_name="info" 
-              size={32} 
-              color={colors.secondary} 
+              ios_icon_name="receipt.fill" 
+              android_material_icon_name="receipt" 
+              size={24} 
+              color="#FFFFFF" 
             />
-            <Text style={styles.infoTitle}>Fazemos pra você!</Text>
-            <Text style={styles.infoText}>
-              Precisa de certidões ou documentos oficiais? Nós cuidamos de tudo! 
-              Nossos parceiros especializados emitem seus documentos com rapidez e segurança.
+            <Text style={styles.ordersButtonText}>
+              Todos os Pedidos
             </Text>
-          </View>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -217,15 +256,24 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   scrollContent: {
-    paddingBottom: 100,
+    paddingBottom: 120,
+    paddingTop: 20,
   },
   centerContent: {
     justifyContent: 'center',
     alignItems: 'center',
   },
+  appName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.secondary,
+    textAlign: 'center',
+    marginBottom: 20,
+    letterSpacing: 1,
+  },
   welcomeCard: {
     backgroundColor: colors.card,
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 32,
     marginBottom: 24,
     alignItems: 'center',
@@ -250,26 +298,142 @@ const styles = StyleSheet.create({
   loginButton: {
     backgroundColor: colors.secondary,
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+    marginBottom: 24,
     gap: 12,
-    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   loginButtonText: {
-    marginLeft: 8,
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
-  storesButton: {
-    backgroundColor: colors.primary,
+  howItWorksCard: {
+    backgroundColor: colors.card,
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  howItWorksTitle: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  stepContainer: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 32,
+    marginBottom: 20,
+    alignItems: 'flex-start',
   },
-  storesButtonText: {
-    marginLeft: 8,
+  stepNumber: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  stepNumberText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  stepContent: {
+    flex: 1,
+  },
+  stepTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  stepDescription: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    lineHeight: 22,
+  },
+  flowOptionsCard: {
+    backgroundColor: colors.card,
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  flowOptionsTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  flowOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+  },
+  flowOptionContent: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  flowOptionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  flowOptionDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  discountBadge: {
+    backgroundColor: colors.accent,
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  discountBadgeText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   sectionTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: colors.text,
     marginBottom: 16,
+  },
+  serviceCard: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
   serviceHeader: {
     flexDirection: 'row',
@@ -285,30 +449,30 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: 4,
   },
-  serviceDescription: {
-    fontSize: 16,
-    color: colors.textSecondary,
-  },
-  infoCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 24,
-    marginTop: 24,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.secondary,
-  },
-  infoTitle: {
-    fontSize: 22,
+  servicePrice: {
+    fontSize: 18,
     fontWeight: '700',
     color: colors.secondary,
-    marginTop: 12,
-    marginBottom: 8,
   },
-  infoText: {
-    fontSize: 16,
-    color: colors.text,
-    textAlign: 'center',
-    lineHeight: 24,
+  ordersButton: {
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+    marginTop: 8,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  ordersButtonText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

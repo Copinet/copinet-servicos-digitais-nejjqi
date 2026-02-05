@@ -32,6 +32,7 @@ export default function ServicesScreen() {
         price: parseFloat(service.price),
         icon: service.icon || 'description',
         estimatedTime: service.estimatedTime,
+        type: service.type || 'fazemos_pra_voce',
       }));
       
       setServices(transformedServices);
@@ -134,6 +135,8 @@ export default function ServicesScreen() {
             const serviceName = service.name;
             const serviceDescription = service.description;
             const priceText = formatPrice(service.price);
+            const serviceType = service.type || 'fazemos_pra_voce';
+            const hasSelfService = serviceType === 'both' || serviceType === 'faca_sozinho';
             
             return (
               <TouchableOpacity
@@ -149,8 +152,20 @@ export default function ServicesScreen() {
                     color={colors.secondary} 
                   />
                   <View style={styles.serviceInfo}>
-                    <Text style={styles.serviceName}>{serviceName}</Text>
+                    <View style={styles.serviceNameRow}>
+                      <Text style={styles.serviceName}>{serviceName}</Text>
+                      {hasSelfService && (
+                        <View style={styles.discountBadge}>
+                          <Text style={styles.discountText}>-20%</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.serviceDescription}>{serviceDescription}</Text>
+                    {hasSelfService && (
+                      <Text style={styles.selfServiceText}>
+                        💡 Faça sozinho e economize 20%
+                      </Text>
+                    )}
                     <View style={styles.priceContainer}>
                       <Text style={styles.priceLabel}>A partir de</Text>
                       <Text style={styles.priceValue}>R$ {priceText}</Text>
@@ -218,15 +233,37 @@ const styles = StyleSheet.create({
   serviceInfo: {
     flex: 1,
   },
+  serviceNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
   serviceName: {
     fontSize: 18,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: 4,
+  },
+  discountBadge: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  discountText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   serviceDescription: {
     fontSize: 14,
     color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  selfServiceText: {
+    fontSize: 12,
+    color: colors.accent,
+    fontWeight: '600',
     marginBottom: 8,
   },
   priceContainer: {
