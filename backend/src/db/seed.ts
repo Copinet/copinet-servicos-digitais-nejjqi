@@ -12,6 +12,44 @@ export async function seedInitialServices(app: App) {
     }
 
     const initialServices = [
+      // High-priority services (most commonly used)
+      {
+        name: 'Impressão Rápida',
+        description: 'Impressão rápida de documentos em preto e branco',
+        category: 'printing',
+        price: '0.50',
+        estimatedTime: '1 hora',
+        icon: 'printer',
+        type: 'fazemos_pra_voce',
+      },
+      {
+        name: 'Digitalização de Documento em PDF',
+        description: 'Digitalização de documentos físicos em formato PDF de alta qualidade',
+        category: 'documents',
+        price: '3.00',
+        estimatedTime: '1-2 dias úteis',
+        icon: 'scan',
+        type: 'fazemos_pra_voce',
+      },
+      {
+        name: 'Foto 3x4',
+        description: 'Foto 3x4 profissional para documentos',
+        category: 'graphics',
+        price: '15.00',
+        estimatedTime: '30 minutos',
+        icon: 'camera',
+        type: 'fazemos_pra_voce',
+      },
+      {
+        name: 'Currículo',
+        description: 'Criação ou atualização de currículo profissional',
+        category: 'documents',
+        price: '25.00',
+        estimatedTime: '3-5 dias úteis',
+        icon: 'file-text',
+        type: 'both',
+      },
+
       // Document Services
       {
         name: 'Cópia Simples de Documentos',
@@ -20,6 +58,7 @@ export async function seedInitialServices(app: App) {
         price: '0.50',
         estimatedTime: '1 dia útil',
         icon: 'document-copy',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Cópia Colorida de Documentos',
@@ -28,6 +67,7 @@ export async function seedInitialServices(app: App) {
         price: '1.50',
         estimatedTime: '1 dia útil',
         icon: 'document-color',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Autenticação de Documentos',
@@ -36,6 +76,7 @@ export async function seedInitialServices(app: App) {
         price: '45.00',
         estimatedTime: '3-5 dias úteis',
         icon: 'document-check',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Tradução de Documentos',
@@ -44,14 +85,7 @@ export async function seedInitialServices(app: App) {
         price: '80.00',
         estimatedTime: '5-7 dias úteis',
         icon: 'translate',
-      },
-      {
-        name: 'Digitalização de Documentos',
-        description: 'Digitalização profissional de documentos com alta resolução',
-        category: 'documents',
-        price: '2.00',
-        estimatedTime: '1-2 dias úteis',
-        icon: 'scan',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Encadernação de Documentos',
@@ -60,6 +94,7 @@ export async function seedInitialServices(app: App) {
         price: '15.00',
         estimatedTime: '2-3 dias úteis',
         icon: 'book',
+        type: 'fazemos_pra_voce',
       },
 
       // Printing Services
@@ -70,6 +105,7 @@ export async function seedInitialServices(app: App) {
         price: '0.35',
         estimatedTime: '1 dia útil',
         icon: 'printer',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Impressão Colorida A4',
@@ -78,6 +114,7 @@ export async function seedInitialServices(app: App) {
         price: '1.20',
         estimatedTime: '1 dia útil',
         icon: 'printer-color',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Impressão em Banner',
@@ -86,6 +123,7 @@ export async function seedInitialServices(app: App) {
         price: '35.00',
         estimatedTime: '2-3 dias úteis',
         icon: 'banner',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Cartões de Visita',
@@ -94,6 +132,7 @@ export async function seedInitialServices(app: App) {
         price: '45.00',
         estimatedTime: '3-5 dias úteis',
         icon: 'id-card',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Convites e Panfletos',
@@ -102,6 +141,7 @@ export async function seedInitialServices(app: App) {
         price: '0.60',
         estimatedTime: '2-3 dias úteis',
         icon: 'flyer',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Adesivos Personalizados',
@@ -110,6 +150,7 @@ export async function seedInitialServices(app: App) {
         price: '25.00',
         estimatedTime: '3-4 dias úteis',
         icon: 'sticker',
+        type: 'fazemos_pra_voce',
       },
 
       // Graphics Design Services
@@ -120,6 +161,7 @@ export async function seedInitialServices(app: App) {
         price: '250.00',
         estimatedTime: '5-7 dias úteis',
         icon: 'palette',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Design de Material Marketing',
@@ -128,6 +170,7 @@ export async function seedInitialServices(app: App) {
         price: '150.00',
         estimatedTime: '3-5 dias úteis',
         icon: 'design',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Edição de Fotos',
@@ -136,6 +179,7 @@ export async function seedInitialServices(app: App) {
         price: '30.00',
         estimatedTime: '1-2 dias úteis',
         icon: 'image-edit',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Design de Embalagem',
@@ -144,6 +188,7 @@ export async function seedInitialServices(app: App) {
         price: '200.00',
         estimatedTime: '5-7 dias úteis',
         icon: 'box',
+        type: 'fazemos_pra_voce',
       },
       {
         name: 'Criação de Apresentação',
@@ -152,6 +197,7 @@ export async function seedInitialServices(app: App) {
         price: '100.00',
         estimatedTime: '2-3 dias úteis',
         icon: 'presentation',
+        type: 'fazemos_pra_voce',
       },
     ];
 

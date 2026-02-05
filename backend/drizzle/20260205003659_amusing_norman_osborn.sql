@@ -1,0 +1,1 @@
+ALTER TABLE "services" ADD COLUMN "type" text DEFAULT 'fazemos_pra_voce' NOT NULL;

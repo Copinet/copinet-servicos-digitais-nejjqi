@@ -17,6 +17,7 @@ export const services = pgTable('services', {
   price: decimal('price', { precision: 10, scale: 2 }).notNull(),
   estimatedTime: text('estimated_time'), // e.g., "2-3 dias úteis"
   icon: text('icon'), // icon name
+  type: text('type').default('fazemos_pra_voce').notNull(), // "fazemos_pra_voce", "faca_sozinho", "both"
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

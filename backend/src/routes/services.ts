@@ -10,6 +10,7 @@ interface CreateServiceBody {
   price: string;
   estimatedTime?: string;
   icon?: string;
+  type?: string;
 }
 
 export function registerServicesRoutes(app: App, fastify: FastifyInstance) {
@@ -31,6 +32,7 @@ export function registerServicesRoutes(app: App, fastify: FastifyInstance) {
               price: { type: 'string' },
               estimatedTime: { type: 'string' },
               icon: { type: 'string' },
+              type: { type: 'string' },
             },
           },
         },
@@ -66,6 +68,7 @@ export function registerServicesRoutes(app: App, fastify: FastifyInstance) {
             price: { type: 'string' },
             estimatedTime: { type: 'string' },
             icon: { type: 'string' },
+            type: { type: 'string' },
             createdAt: { type: 'string' },
           },
         },
@@ -102,6 +105,7 @@ export function registerServicesRoutes(app: App, fastify: FastifyInstance) {
           price: { type: 'string' },
           estimatedTime: { type: 'string' },
           icon: { type: 'string' },
+          type: { type: 'string' },
         },
         required: ['name', 'description', 'category', 'price'],
       },
@@ -116,14 +120,15 @@ export function registerServicesRoutes(app: App, fastify: FastifyInstance) {
             price: { type: 'string' },
             estimatedTime: { type: 'string' },
             icon: { type: 'string' },
+            type: { type: 'string' },
             createdAt: { type: 'string' },
           },
         },
       },
     },
   }, async (request: FastifyRequest<{ Body: CreateServiceBody }>, reply: FastifyReply) => {
-    const { name, description, category, price, estimatedTime, icon } = request.body;
-    app.logger.info({ name, category, price }, 'Creating new service');
+    const { name, description, category, price, estimatedTime, icon, type } = request.body;
+    app.logger.info({ name, category, price, type }, 'Creating new service');
 
     const newService = await app.db
       .insert(schema.services)
@@ -134,6 +139,7 @@ export function registerServicesRoutes(app: App, fastify: FastifyInstance) {
         price,
         estimatedTime: estimatedTime || null,
         icon: icon || null,
+        type: type || 'fazemos_pra_voce',
       })
       .returning();
 
