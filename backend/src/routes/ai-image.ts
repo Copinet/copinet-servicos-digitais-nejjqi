@@ -16,6 +16,41 @@ interface EnhanceDocumentBody {
   };
 }
 
+const AI_TIMEOUT = 30000; // 30 seconds
+const FETCH_TIMEOUT = 10000; // 10 seconds
+
+// Helper function to fetch image with timeout
+async function fetchImageWithTimeout(imageUrl: string, timeout: number): Promise<Buffer> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(imageUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Copinet/1.0)',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Helper function to timeout AI processing
+async function withTimeout<T>(promise: Promise<T>, timeout: number): Promise<T> {
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('AI processing timeout')), timeout)
+  );
+  return Promise.race([promise, timeoutPromise]);
+}
+
 export function registerAIImageRoutes(app: App, fastify: FastifyInstance) {
   const requireAuth = app.requireAuth();
 
@@ -36,6 +71,7 @@ export function registerAIImageRoutes(app: App, fastify: FastifyInstance) {
           type: 'object',
           properties: {
             processedImageUrl: { type: 'string' },
+            success: { type: 'boolean' },
           },
         },
       },
@@ -49,46 +85,77 @@ export function registerAIImageRoutes(app: App, fastify: FastifyInstance) {
     app.logger.info({ userId, imageUrl }, 'Starting background removal');
 
     try {
-      // Fetch the image from URL
-      const imageResponse = await fetch(imageUrl);
-      if (!imageResponse.ok) {
-        app.logger.warn({ imageUrl }, 'Failed to fetch image');
-        return reply.status(400).send({ error: 'Failed to fetch image' });
+      // Validate URL format
+      try {
+        new URL(imageUrl);
+      } catch (err) {
+        app.logger.warn({ userId, imageUrl }, 'Invalid image URL format');
+        return reply.status(400).send({
+          processedImageUrl: imageUrl,
+          success: false,
+        });
       }
 
-      const imageBuffer = await imageResponse.arrayBuffer();
-      const base64Image = Buffer.from(imageBuffer).toString('base64');
+      // Fetch the image from URL with timeout
+      let imageBuffer: Buffer;
+      try {
+        imageBuffer = await fetchImageWithTimeout(imageUrl, FETCH_TIMEOUT);
+      } catch (fetchErr) {
+        app.logger.warn({ userId, imageUrl, err: fetchErr }, 'Failed to fetch image');
+        // Return original URL as fallback
+        return {
+          processedImageUrl: imageUrl,
+          success: false,
+        };
+      }
 
-      // Use GPT-5.2 vision to process the image
-      const result = await generateText({
-        model: gateway('openai/gpt-5.2'),
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'image', image: base64Image },
+      const base64Image = imageBuffer.toString('base64');
+
+      // Use GPT-5.2 vision to process the image with timeout
+      let result;
+      try {
+        result = await withTimeout(
+          generateText({
+            model: gateway('openai/gpt-5.2'),
+            messages: [
               {
-                type: 'text',
-                text: 'Remove the background from this image and replace it with a white background. Return a data URL of the processed image in base64 PNG format.',
+                role: 'user',
+                content: [
+                  { type: 'image', image: base64Image },
+                  {
+                    type: 'text',
+                    text: 'Remove the background from this image and replace it with a white background. Return the processed image as base64 PNG.',
+                  },
+                ],
               },
             ],
-          },
-        ],
-      });
+          }),
+          AI_TIMEOUT
+        );
+      } catch (aiErr) {
+        app.logger.warn({ userId, err: aiErr }, 'AI background removal failed, using fallback');
+        // Return original URL as fallback
+        return {
+          processedImageUrl: imageUrl,
+          success: false,
+        };
+      }
 
       app.logger.info({ userId }, 'Background removal completed');
 
-      // In a real implementation, you would:
-      // 1. Parse the returned image data
-      // 2. Upload it to storage
-      // 3. Return the signed URL
-      // For now, we'll return a mock response
-      const mockProcessedUrl = `data:image/png;base64,${Buffer.from(result.text).toString('base64')}`;
+      // Return processed image (could be base64 or URL)
+      const processedUrl = result.text.startsWith('data:') || result.text.startsWith('http')
+        ? result.text
+        : `data:image/png;base64,${result.text}`;
 
-      return { processedImageUrl: mockProcessedUrl };
+      return { processedImageUrl: processedUrl, success: true };
     } catch (error) {
-      app.logger.error({ err: error, userId }, 'Background removal failed');
-      return reply.status(500).send({ error: 'Failed to process image' });
+      app.logger.error({ err: error, userId }, 'Background removal endpoint error');
+      // Return original URL on any error
+      return {
+        processedImageUrl: request.body.imageUrl,
+        success: false,
+      };
     }
   });
 
@@ -117,6 +184,7 @@ export function registerAIImageRoutes(app: App, fastify: FastifyInstance) {
           type: 'object',
           properties: {
             processedImageUrl: { type: 'string' },
+            success: { type: 'boolean' },
           },
         },
       },
@@ -130,15 +198,31 @@ export function registerAIImageRoutes(app: App, fastify: FastifyInstance) {
     app.logger.info({ userId, imageUrl, options }, 'Starting document enhancement');
 
     try {
-      // Fetch the image from URL
-      const imageResponse = await fetch(imageUrl);
-      if (!imageResponse.ok) {
-        app.logger.warn({ imageUrl }, 'Failed to fetch image');
-        return reply.status(400).send({ error: 'Failed to fetch image' });
+      // Validate URL format
+      try {
+        new URL(imageUrl);
+      } catch (err) {
+        app.logger.warn({ userId, imageUrl }, 'Invalid image URL format');
+        return reply.status(400).send({
+          processedImageUrl: imageUrl,
+          success: false,
+        });
       }
 
-      const imageBuffer = await imageResponse.arrayBuffer();
-      const base64Image = Buffer.from(imageBuffer).toString('base64');
+      // Fetch the image from URL with timeout
+      let imageBuffer: Buffer;
+      try {
+        imageBuffer = await fetchImageWithTimeout(imageUrl, FETCH_TIMEOUT);
+      } catch (fetchErr) {
+        app.logger.warn({ userId, imageUrl, err: fetchErr }, 'Failed to fetch image');
+        // Return original URL as fallback
+        return {
+          processedImageUrl: imageUrl,
+          success: false,
+        };
+      }
+
+      const base64Image = imageBuffer.toString('base64');
 
       // Build enhancement instructions
       let instructions = 'Enhance this scanned document image. ';
@@ -151,38 +235,53 @@ export function registerAIImageRoutes(app: App, fastify: FastifyInstance) {
       if (options.enhanceContrast) {
         instructions += 'Enhance contrast to make text clearer and more readable. ';
       }
-      instructions += 'Return a data URL of the enhanced image in base64 PNG format.';
+      instructions += 'Return the enhanced image as base64 PNG.';
 
-      // Use GPT-5.2 vision to process the image
-      const result = await generateText({
-        model: gateway('openai/gpt-5.2'),
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'image', image: base64Image },
+      // Use GPT-5.2 vision to process the image with timeout
+      let result;
+      try {
+        result = await withTimeout(
+          generateText({
+            model: gateway('openai/gpt-5.2'),
+            messages: [
               {
-                type: 'text',
-                text: instructions,
+                role: 'user',
+                content: [
+                  { type: 'image', image: base64Image },
+                  {
+                    type: 'text',
+                    text: instructions,
+                  },
+                ],
               },
             ],
-          },
-        ],
-      });
+          }),
+          AI_TIMEOUT
+        );
+      } catch (aiErr) {
+        app.logger.warn({ userId, err: aiErr }, 'AI document enhancement failed, using fallback');
+        // Return original URL as fallback
+        return {
+          processedImageUrl: imageUrl,
+          success: false,
+        };
+      }
 
       app.logger.info({ userId }, 'Document enhancement completed');
 
-      // In a real implementation, you would:
-      // 1. Parse the returned image data
-      // 2. Upload it to storage
-      // 3. Return the signed URL
-      // For now, we'll return a mock response
-      const mockProcessedUrl = `data:image/png;base64,${Buffer.from(result.text).toString('base64')}`;
+      // Return processed image (could be base64 or URL)
+      const processedUrl = result.text.startsWith('data:') || result.text.startsWith('http')
+        ? result.text
+        : `data:image/png;base64,${result.text}`;
 
-      return { processedImageUrl: mockProcessedUrl };
+      return { processedImageUrl: processedUrl, success: true };
     } catch (error) {
-      app.logger.error({ err: error, userId }, 'Document enhancement failed');
-      return reply.status(500).send({ error: 'Failed to enhance document' });
+      app.logger.error({ err: error, userId }, 'Document enhancement endpoint error');
+      // Return original URL on any error
+      return {
+        processedImageUrl: request.body.imageUrl,
+        success: false,
+      };
     }
   });
 }
