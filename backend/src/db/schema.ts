@@ -6,6 +6,7 @@ import {
   timestamp,
   boolean,
   jsonb,
+  integer,
 } from 'drizzle-orm/pg-core';
 
 // Services table
@@ -69,4 +70,30 @@ export const stores = pgTable('stores', {
   phone: text('phone').notNull(),
   isOwned: boolean('is_owned').default(true).notNull(), // true for Copinet's own stores
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Print Jobs table
+export const printJobs = pgTable('print_jobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(), // from auth
+  serviceType: text('service_type').notNull(), // 'quick_print', 'photo_print', 'photo_3x4', 'scan_to_pdf'
+  files: jsonb('files').notNull(), // array of {url, name, size, mimeType, pageCount}
+  options: jsonb('options').notNull(), // {colorMode, copies, paperType, paperSize, pageRange, notes}
+  totalPages: text('total_pages').notNull(),
+  pricePerPage: decimal('price_per_page', { precision: 10, scale: 2 }).notNull(),
+  totalPrice: decimal('total_price', { precision: 10, scale: 2 }).notNull(),
+  status: text('status').default('pending').notNull(), // 'pending', 'processing', 'ready', 'completed', 'cancelled'
+  pdfUrl: text('pdf_url'), // generated PDF URL if applicable
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Pricing Configuration table
+export const pricingConfig = pgTable('pricing_config', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  serviceType: text('service_type').notNull().unique(), // 'quick_print', 'photo_print', 'photo_3x4', 'scan_to_pdf'
+  pricePerPage: decimal('price_per_page', { precision: 10, scale: 2 }), // per page price
+  photoSizes: jsonb('photo_sizes'), // {size: price} mapping for photo prints
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

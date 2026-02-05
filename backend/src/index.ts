@@ -9,7 +9,11 @@ import { registerAIRoutes } from './routes/ai.js';
 import { registerUploadRoutes } from './routes/upload.js';
 import { registerPartnersRoutes } from './routes/partners.js';
 import { registerStoresRoutes } from './routes/stores.js';
+import { registerPrintJobsRoutes } from './routes/print-jobs.js';
+import { registerPricingRoutes } from './routes/pricing.js';
+import { registerAIImageRoutes } from './routes/ai-image.js';
 import { seedInitialServices } from './db/seed.js';
+import { seedPricingConfig } from './db/seed-pricing.js';
 
 // Combine schemas for full database type support
 const schema = { ...appSchema, ...authSchema };
@@ -33,9 +37,13 @@ registerAIRoutes(app, app.fastify);
 registerUploadRoutes(app, app.fastify);
 registerPartnersRoutes(app, app.fastify);
 registerStoresRoutes(app, app.fastify);
+registerPrintJobsRoutes(app, app.fastify);
+registerPricingRoutes(app, app.fastify);
+registerAIImageRoutes(app, app.fastify);
 
-// Seed initial services on startup
+// Seed initial data on startup
 await seedInitialServices(app);
+await seedPricingConfig(app);
 
 await app.run();
 app.logger.info('Application running');
