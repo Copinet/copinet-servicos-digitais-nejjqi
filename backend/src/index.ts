@@ -12,6 +12,7 @@ import { registerStoresRoutes } from './routes/stores.js';
 import { registerPrintJobsRoutes } from './routes/print-jobs.js';
 import { registerPricingRoutes } from './routes/pricing.js';
 import { registerAIImageRoutes } from './routes/ai-image.js';
+import { registerQuickPrintRoutes } from './routes/quick-print.js';
 import { seedInitialServices } from './db/seed.js';
 import { seedPricingConfig } from './db/seed-pricing.js';
 
@@ -40,6 +41,7 @@ registerStoresRoutes(app, app.fastify);
 registerPrintJobsRoutes(app, app.fastify);
 registerPricingRoutes(app, app.fastify);
 registerAIImageRoutes(app, app.fastify);
+registerQuickPrintRoutes(app, app.fastify);
 
 // Seed initial data on startup
 await seedInitialServices(app);

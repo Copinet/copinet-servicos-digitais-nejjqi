@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { App } from '../index.js';
 
 interface FileUploadResponse {
+  success: true;
   url: string;
   filename: string;
   size: number;
@@ -20,9 +21,10 @@ interface MultipleUploadResponse {
   failed: Array<{ filename: string; error: string; code: string }>;
 }
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
-const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 150 * 1024 * 1024; // 150MB
+const MAX_PDF_PAGES = 1500;
 const MAX_FILENAME_LENGTH = 200;
+const UPLOAD_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 const ALLOWED_TYPES = [
   'application/pdf',
   'image/jpeg',
@@ -36,16 +38,10 @@ const RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff in ms
 
 // Sanitize and normalize filename
 function sanitizeFilename(filename: string): string {
-  // Remove path separators
   let sanitized = filename.replace(/[/\\]/g, '_');
-
-  // Remove special characters, keep only alphanumeric, dots, hyphens, underscores
   sanitized = sanitized.replace(/[^\w.-]/g, '_');
-
-  // Replace multiple underscores with single underscore
   sanitized = sanitized.replace(/_+/g, '_');
 
-  // Limit filename length (keep extension)
   const ext = sanitized.substring(sanitized.lastIndexOf('.'));
   const nameMaxLength = MAX_FILENAME_LENGTH - ext.length;
   if (sanitized.length > MAX_FILENAME_LENGTH) {
@@ -55,34 +51,47 @@ function sanitizeFilename(filename: string): string {
   return sanitized;
 }
 
-// Extract PDF page count
+// Extract PDF page count - Multiple strategies
 function extractPDFPageCount(buffer: Buffer): number {
   try {
     const content = buffer.toString('latin1');
 
-    // Try to find /Count in /Pages object (most reliable)
-    const countMatch = content.match(/\/Pages\s*<<[^>]*\/Count\s*(\d+)/);
+    // Strategy 1: Find /Count in /Pages object (most reliable)
+    const countMatch = content.match(/\/Pages\s*<<[^>]*?\/Count\s*(\d+)/);
     if (countMatch) {
       const count = parseInt(countMatch[1], 10);
-      return Math.min(count, 1000); // Cap at 1000 pages
-    }
-
-    // Fallback: count /Type /Page occurrences
-    const pageMatches = content.match(/\/Type\s*\/Page\s*(?!s)/g);
-    if (pageMatches && pageMatches.length > 0) {
-      return Math.min(pageMatches.length, 1000);
-    }
-
-    // Last resort: check for xref entries
-    const xrefMatch = content.match(/xref[\s\S]*?(\d+)\s+0\s+obj/);
-    if (xrefMatch) {
-      const xrefCount = parseInt(xrefMatch[1], 10);
-      if (xrefCount > 0 && xrefCount < 10000) {
-        return Math.min(Math.ceil(xrefCount / 10), 1000);
+      if (count > 0 && count <= MAX_PDF_PAGES) {
+        return count;
       }
     }
 
-    return 1; // Default to 1 page if cannot determine
+    // Strategy 2: Count /Type /Page occurrences
+    const pageMatches = content.match(/\/Type\s*\/Page\s*(?!s)/g);
+    if (pageMatches && pageMatches.length > 0) {
+      return Math.min(pageMatches.length, MAX_PDF_PAGES);
+    }
+
+    // Strategy 3: Check for stream objects (common in PDFs)
+    const streamMatches = content.match(/stream[\s\S]*?endstream/g);
+    if (streamMatches && streamMatches.length > 0) {
+      const estimatedPages = Math.ceil(streamMatches.length / 2);
+      if (estimatedPages > 0 && estimatedPages <= MAX_PDF_PAGES) {
+        return estimatedPages;
+      }
+    }
+
+    // Strategy 4: Check xref entries
+    const xrefMatch = content.match(/xref[\s\S]*?(\d+)\s+(\d+)/);
+    if (xrefMatch) {
+      const objects = parseInt(xrefMatch[2], 10);
+      const estimatedPages = Math.ceil(objects / 10);
+      if (estimatedPages > 0 && estimatedPages <= MAX_PDF_PAGES) {
+        return estimatedPages;
+      }
+    }
+
+    // Default: 1 page
+    return 1;
   } catch (error) {
     return 1;
   }
@@ -90,33 +99,9 @@ function extractPDFPageCount(buffer: Buffer): number {
 
 // Estimate page count for Word documents
 function estimateWordPageCount(fileSize: number): number {
-  // Rough estimate: approximately 1 page per 50KB
+  // Rough estimate: 1 page per 50KB
   const estimatedPages = Math.ceil(fileSize / 50000);
-  return Math.min(estimatedPages, 1000); // Cap at 1000 pages
-}
-
-// Get page count based on file type
-function getPageCount(mimeType: string, fileSize?: number, buffer?: Buffer): number {
-  // Images count as 1 page each
-  if (mimeType.startsWith('image/')) {
-    return 1;
-  }
-
-  // Word documents - estimate based on file size
-  if (
-    mimeType === 'application/msword' ||
-    mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  ) {
-    return fileSize ? estimateWordPageCount(fileSize) : 1;
-  }
-
-  // PDF - extract from buffer if provided
-  if (mimeType === 'application/pdf' && buffer) {
-    return extractPDFPageCount(buffer);
-  }
-
-  // Default to 1 page
-  return 1;
+  return Math.min(estimatedPages, MAX_PDF_PAGES);
 }
 
 // Validate file type
@@ -124,7 +109,7 @@ function validateFileType(mimeType: string): { valid: boolean; error?: string } 
   if (!ALLOWED_TYPES.includes(mimeType)) {
     return {
       valid: false,
-      error: `Formato de arquivo não suportado. Tipos aceitos: PDF, imagens (JPEG, PNG, WebP), Word (.doc, .docx)`,
+      error: `Formato não suportado. Aceitos: PDF, imagens (JPEG, PNG, WebP), Word`,
     };
   }
   return { valid: true };
@@ -139,103 +124,102 @@ async function uploadWithRetry(
   userId: string,
   filename: string
 ): Promise<string> {
+  let lastError: Error | null = null;
+
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
     try {
       const uploadedKey = await storage.upload(key, buffer);
-      logger.info({ userId, filename, attempt: attempt + 1 }, 'File uploaded to storage');
+      logger.info({ userId, filename, attempt: attempt + 1 }, 'File uploaded');
       return uploadedKey;
     } catch (error) {
+      lastError = error as Error;
       logger.warn(
-        { userId, filename, attempt: attempt + 1, err: error },
-        `Upload attempt ${attempt + 1} failed`
+        { userId, filename, attempt: attempt + 1, error: lastError.message },
+        `Tentativa de upload ${attempt + 1} falhou`
       );
 
       if (attempt < RETRY_ATTEMPTS - 1) {
-        // Wait before retrying with exponential backoff
         const delay = RETRY_DELAYS[attempt];
         await new Promise((resolve) => setTimeout(resolve, delay));
-      } else {
-        // All retries exhausted
-        throw new Error('Falha ao salvar arquivo após múltiplas tentativas');
       }
     }
   }
-  throw new Error('Erro desconhecido no upload');
+
+  throw lastError || new Error('Falha ao salvar arquivo');
 }
 
 export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
   const requireAuth = app.requireAuth();
 
-  // POST /api/upload/document - Upload single document with streaming support
-  fastify.post('/api/upload/document', {
-    schema: {
-      description: 'Upload a document with streaming support for large files (até 100MB)',
-      tags: ['upload'],
-      consumes: ['multipart/form-data'],
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            url: { type: 'string' },
-            filename: { type: 'string' },
-            size: { type: 'number' },
-            mimeType: { type: 'string' },
-            pageCount: { type: 'number' },
-          },
-        },
+  // POST /api/upload/document - Single document upload with timeout
+  fastify.post<{ Reply: FileUploadResponse | ErrorResponse }>(
+    '/api/upload/document',
+    {
+      schema: {
+        description: 'Upload documento (PDF, imagens, Word) até 150MB',
+        tags: ['upload'],
+        consumes: ['multipart/form-data'],
       },
     },
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const session = await requireAuth(request, reply);
-    if (!session) return;
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      // Ensure JSON response on error
+      reply.type('application/json');
 
-    const userId = session.user.id;
-    app.logger.info({ userId }, 'Iniciando upload de documento');
+      const session = await requireAuth(request, reply);
+      if (!session) return;
 
-    try {
-      const data = await request.file();
-      if (!data) {
-        app.logger.warn({ userId }, 'Nenhum arquivo fornecido para upload');
-        return reply.status(400).send({
-          success: false,
-          error: 'Nenhum arquivo foi enviado',
-          code: 'NO_FILE',
-        } as ErrorResponse);
-      }
+      const userId = session.user.id;
+      app.logger.info({ userId }, 'Iniciando upload');
 
-      // Validate file type first
-      const typeValidation = validateFileType(data.mimetype);
-      if (!typeValidation.valid) {
-        app.logger.warn(
-          { userId, filename: data.filename, mimeType: data.mimetype },
-          'Tipo de arquivo inválido'
-        );
-        return reply.status(400).send({
-          success: false,
-          error: typeValidation.error || 'Tipo de arquivo inválido',
-          code: 'INVALID_FORMAT',
-        } as ErrorResponse);
-      }
-
-      let buffer: Buffer;
-      let totalSize = 0;
-      const chunks: Buffer[] = [];
+      // Set timeout for entire operation
+      const timeoutId = setTimeout(() => {
+        if (!reply.sent) {
+          app.logger.error({ userId }, 'Upload timeout após 5 minutos');
+          reply.status(408).send({
+            success: false,
+            error: 'Upload excedeu tempo limite de 5 minutos',
+            code: 'UPLOAD_TIMEOUT',
+          } as ErrorResponse);
+        }
+      }, UPLOAD_TIMEOUT);
 
       try {
-        // Stream and collect buffer with size checking
+        const data = await request.file();
+        if (!data) {
+          app.logger.warn({ userId }, 'Arquivo não fornecido');
+          return reply.status(400).send({
+            success: false,
+            error: 'Nenhum arquivo foi enviado',
+            code: 'NO_FILE',
+          } as ErrorResponse);
+        }
+
+        // Validate file type
+        const typeValidation = validateFileType(data.mimetype);
+        if (!typeValidation.valid) {
+          app.logger.warn({ userId, mimeType: data.mimetype }, 'Tipo inválido');
+          return reply.status(400).send({
+            success: false,
+            error: typeValidation.error || 'Tipo de arquivo inválido',
+            code: 'INVALID_FORMAT',
+          } as ErrorResponse);
+        }
+
+        const chunks: Buffer[] = [];
+        let totalSize = 0;
+
+        // Stream file with size checking
         for await (const chunk of data.file) {
           totalSize += chunk.length;
 
-          // Check size limit during streaming
           if (totalSize > MAX_FILE_SIZE) {
             app.logger.error(
-              { userId, filename: data.filename, size: totalSize },
-              'Tamanho de arquivo excedido'
+              { userId, size: totalSize },
+              'Arquivo muito grande'
             );
             return reply.status(413).send({
               success: false,
-              error: `Arquivo muito grande. Tamanho máximo: 100MB (você enviou ${(totalSize / 1024 / 1024).toFixed(2)}MB)`,
+              error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo: 150MB`,
               code: 'FILE_TOO_LARGE',
             } as ErrorResponse);
           }
@@ -243,270 +227,275 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
           chunks.push(chunk);
         }
 
-        buffer = Buffer.concat(chunks);
-        app.logger.info({ userId, filename: data.filename, size: totalSize }, 'Buffer criado com sucesso');
-      } catch (err) {
-        app.logger.error({ err, userId, filename: data.filename }, 'Falha ao ler stream do arquivo');
-        return reply.status(400).send({
-          success: false,
-          error: 'Erro ao ler o arquivo. Por favor, tente novamente.',
-          code: 'PROCESSING_FAILED',
-        } as ErrorResponse);
-      }
-
-      try {
-        // Sanitize filename
-        const sanitizedFilename = sanitizeFilename(data.filename);
-        const timestamp = Date.now();
-        const finalFilename = `${timestamp}-${sanitizedFilename}`;
-        const key = `documents/${userId}/${finalFilename}`;
-
+        const buffer = Buffer.concat(chunks);
         app.logger.info(
-          { userId, originalFilename: data.filename, sanitizedFilename, size: buffer.length },
-          'Iniciando processamento de upload'
+          { userId, size: buffer.length, chunks: chunks.length },
+          'Buffer criado'
         );
 
-        // Get page count based on file type
+        // Sanitize filename
+        const sanitized = sanitizeFilename(data.filename);
+        const timestamp = Date.now();
+        const finalFilename = `${timestamp}-${sanitized}`;
+        const key = `documents/${userId}/${finalFilename}`;
+
+        // Extract page count
         let pageCount = 1;
         if (data.mimetype === 'application/pdf') {
           pageCount = extractPDFPageCount(buffer);
         } else if (
           data.mimetype === 'application/msword' ||
-          data.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          data.mimetype ===
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         ) {
           pageCount = estimateWordPageCount(buffer.length);
         }
 
         app.logger.info(
-          { userId, filename: finalFilename, pageCount },
-          `Contagem de páginas: ${pageCount}`
+          { userId, filename: finalFilename, pageCount, size: buffer.length },
+          `Páginas detectadas: ${pageCount}`
         );
 
-        // Upload to storage with retry logic
+        // Upload with retries
         let uploadedKey: string;
         try {
-          uploadedKey = await uploadWithRetry(app.storage, key, buffer, app.logger, userId, finalFilename);
+          uploadedKey = await uploadWithRetry(
+            app.storage,
+            key,
+            buffer,
+            app.logger,
+            userId,
+            finalFilename
+          );
         } catch (storageErr) {
-          app.logger.error({ err: storageErr, userId, filename: finalFilename }, 'Falha no upload ao armazenamento');
+          app.logger.error(
+            { userId, filename: finalFilename, error: storageErr },
+            'Erro no armazenamento'
+          );
           return reply.status(500).send({
             success: false,
-            error: 'Erro ao salvar arquivo no armazenamento. Por favor, tente novamente.',
-            code: 'PROCESSING_FAILED',
+            error: 'Erro ao salvar arquivo. Tente novamente.',
+            code: 'STORAGE_ERROR',
           } as ErrorResponse);
         }
 
-        // Generate signed URL
+        // Get signed URL
         const { url } = await app.storage.getSignedUrl(uploadedKey);
 
         app.logger.info(
-          { userId, filename: finalFilename, pageCount, size: buffer.length },
-          'Documento uploaded com sucesso'
+          { userId, filename: finalFilename, pageCount },
+          'Upload concluído'
         );
 
-        return {
+        clearTimeout(timeoutId);
+        return reply.send({
           success: true,
           url,
           filename: data.filename,
           size: buffer.length,
           mimeType: data.mimetype,
           pageCount,
-        };
+        } as FileUploadResponse);
       } catch (error) {
         app.logger.error(
-          { err: error, userId, filename: data.filename, stack: (error as Error).stack },
-          'Falha ao processar upload de documento'
+          { userId, error: (error as Error).message },
+          'Erro no endpoint'
         );
+        clearTimeout(timeoutId);
         return reply.status(500).send({
           success: false,
-          error: 'Erro ao processar o documento. Por favor, tente novamente.',
-          code: 'PROCESSING_FAILED',
+          error: 'Erro ao processar upload. Tente novamente.',
+          code: 'PROCESSING_ERROR',
         } as ErrorResponse);
       }
-    } catch (error) {
-      app.logger.error(
-        { err: error, userId: session?.user.id, stack: (error as Error).stack },
-        'Erro no endpoint de upload'
-      );
-      return reply.status(500).send({
-        success: false,
-        error: 'Erro interno do servidor. Por favor, tente novamente mais tarde.',
-        code: 'PROCESSING_FAILED',
-      } as ErrorResponse);
     }
-  });
+  );
 
-  // POST /api/upload/multiple - Upload multiple files in parallel
-  fastify.post('/api/upload/multiple', {
-    schema: {
-      description: 'Upload de múltiplos documentos com processamento paralelo (até 10 arquivos, máx 100MB cada)',
-      tags: ['upload'],
-      consumes: ['multipart/form-data'],
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            uploads: { type: 'array' },
-            failed: { type: 'array' },
-          },
-        },
+  // POST /api/upload/multiple - Multiple files in parallel
+  fastify.post<{ Reply: MultipleUploadResponse }>(
+    '/api/upload/multiple',
+    {
+      schema: {
+        description: 'Upload múltiplos documentos (max 10 arquivos, 150MB cada)',
+        tags: ['upload'],
+        consumes: ['multipart/form-data'],
       },
     },
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const session = await requireAuth(request, reply);
-    if (!session) return;
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      // Ensure JSON response
+      reply.type('application/json');
 
-    const userId = session.user.id;
-    app.logger.info({ userId }, 'Iniciando upload de múltiplos arquivos');
+      const session = await requireAuth(request, reply);
+      if (!session) return;
 
-    const uploadedFiles: FileUploadResponse[] = [];
-    const failedFiles: Array<{ filename: string; error: string; code: string }> = [];
-    let fileCount = 0;
+      const userId = session.user.id;
+      app.logger.info({ userId }, 'Upload múltiplo iniciado');
 
-    try {
-      const files = await request.files();
-      const uploadPromises = [];
+      const uploadedFiles: FileUploadResponse[] = [];
+      const failedFiles: Array<{ filename: string; error: string; code: string }> = [];
 
-      for await (const fileData of files) {
-        fileCount++;
-
-        // Limit to 10 simultaneous files
-        if (fileCount > 10) {
-          app.logger.warn({ userId, filename: fileData.filename }, 'Limite de arquivos excedido (máx 10)');
-          failedFiles.push({
-            filename: fileData.filename,
-            error: 'Limite de 10 arquivos excedido',
-            code: 'TOO_MANY_FILES',
-          });
-          continue;
+      // Set timeout for entire operation
+      const timeoutId = setTimeout(() => {
+        if (!reply.sent) {
+          app.logger.error({ userId }, 'Upload múltiplo timeout');
+          reply.status(408).send({
+            uploads: uploadedFiles,
+            failed: [
+              ...failedFiles,
+              {
+                filename: 'todos',
+                error: 'Upload excedeu tempo limite',
+                code: 'UPLOAD_TIMEOUT',
+              },
+            ],
+          } as MultipleUploadResponse);
         }
+      }, UPLOAD_TIMEOUT);
 
-        // Create promise for each file upload
-        const uploadPromise = (async () => {
-          try {
-            // Validate file type
-            const typeValidation = validateFileType(fileData.mimetype);
-            if (!typeValidation.valid) {
-              app.logger.warn({ userId, filename: fileData.filename }, 'Tipo de arquivo inválido');
-              failedFiles.push({
-                filename: fileData.filename,
-                error: typeValidation.error || 'Tipo de arquivo inválido',
-                code: 'INVALID_FORMAT',
-              });
-              return;
-            }
+      try {
+        const files = await request.files();
+        const uploadPromises = [];
+        let fileCount = 0;
 
-            let buffer: Buffer;
-            let totalSize = 0;
+        for await (const fileData of files) {
+          fileCount++;
 
+          // Limit to 10 files
+          if (fileCount > 10) {
+            app.logger.warn({ userId }, 'Limite de 10 arquivos excedido');
+            failedFiles.push({
+              filename: fileData.filename,
+              error: 'Máximo de 10 arquivos',
+              code: 'TOO_MANY_FILES',
+            });
+            continue;
+          }
+
+          // Create upload promise
+          const uploadPromise = (async () => {
             try {
+              // Validate type
+              const typeValidation = validateFileType(fileData.mimetype);
+              if (!typeValidation.valid) {
+                failedFiles.push({
+                  filename: fileData.filename,
+                  error: typeValidation.error || 'Tipo inválido',
+                  code: 'INVALID_FORMAT',
+                });
+                return;
+              }
+
               const chunks: Buffer[] = [];
+              let totalSize = 0;
+
+              // Stream with size check
               for await (const chunk of fileData.file) {
                 totalSize += chunk.length;
+
                 if (totalSize > MAX_FILE_SIZE) {
                   app.logger.warn(
                     { userId, filename: fileData.filename, size: totalSize },
-                    'Tamanho de arquivo excedido'
+                    'Arquivo muito grande'
                   );
                   failedFiles.push({
                     filename: fileData.filename,
-                    error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(2)}MB). Máximo: 100MB`,
+                    error: `Muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB)`,
                     code: 'FILE_TOO_LARGE',
                   });
                   return;
                 }
+
                 chunks.push(chunk);
               }
-              buffer = Buffer.concat(chunks);
-            } catch (err) {
-              app.logger.error({ err, userId, filename: fileData.filename }, 'Falha ao ler arquivo');
+
+              const buffer = Buffer.concat(chunks);
+
+              const sanitized = sanitizeFilename(fileData.filename);
+              const timestamp = Date.now();
+              const finalFilename = `${timestamp}-${sanitized}`;
+              const key = `documents/${userId}/${finalFilename}`;
+
+              // Extract pages
+              let pageCount = 1;
+              if (fileData.mimetype === 'application/pdf') {
+                pageCount = extractPDFPageCount(buffer);
+              } else if (
+                fileData.mimetype === 'application/msword' ||
+                fileData.mimetype ===
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              ) {
+                pageCount = estimateWordPageCount(buffer.length);
+              }
+
+              // Upload
+              const uploadedKey = await uploadWithRetry(
+                app.storage,
+                key,
+                buffer,
+                app.logger,
+                userId,
+                finalFilename
+              );
+
+              const { url } = await app.storage.getSignedUrl(uploadedKey);
+
+              uploadedFiles.push({
+                success: true,
+                url,
+                filename: fileData.filename,
+                size: buffer.length,
+                mimeType: fileData.mimetype,
+                pageCount,
+              });
+
+              app.logger.info(
+                { userId, filename: finalFilename, pageCount },
+                'Arquivo uploaded'
+              );
+            } catch (error) {
+              app.logger.error(
+                { filename: fileData.filename, error: (error as Error).message },
+                'Falha no upload'
+              );
               failedFiles.push({
                 filename: fileData.filename,
-                error: 'Erro ao ler o arquivo',
-                code: 'PROCESSING_FAILED',
+                error: 'Erro ao fazer upload',
+                code: 'UPLOAD_ERROR',
               });
-              return;
             }
+          })();
 
-            const sanitizedFilename = sanitizeFilename(fileData.filename);
-            const timestamp = Date.now();
-            const finalFilename = `${timestamp}-${sanitizedFilename}`;
-            const key = `documents/${userId}/${finalFilename}`;
+          uploadPromises.push(uploadPromise);
+        }
 
-            // Extract page count
-            let pageCount = 1;
-            if (fileData.mimetype === 'application/pdf') {
-              pageCount = extractPDFPageCount(buffer);
-            } else if (
-              fileData.mimetype === 'application/msword' ||
-              fileData.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-            ) {
-              pageCount = estimateWordPageCount(buffer.length);
-            }
+        // Wait for all uploads
+        await Promise.all(uploadPromises);
 
-            // Upload to storage with retry
-            const uploadedKey = await uploadWithRetry(
-              app.storage,
-              key,
-              buffer,
-              app.logger,
-              userId,
-              finalFilename
-            );
-            const { url } = await app.storage.getSignedUrl(uploadedKey);
+        app.logger.info(
+          { userId, uploaded: uploadedFiles.length, failed: failedFiles.length },
+          'Upload múltiplo concluído'
+        );
 
-            uploadedFiles.push({
-              url,
-              filename: fileData.filename,
-              size: buffer.length,
-              mimeType: fileData.mimetype,
-              pageCount,
-            });
-
-            app.logger.info({ userId, filename: finalFilename, pageCount }, 'Arquivo uploaded com sucesso');
-          } catch (error) {
-            app.logger.error(
-              { err: error, filename: fileData.filename, stack: (error as Error).stack },
-              'Falha no upload do arquivo'
-            );
-            failedFiles.push({
-              filename: fileData.filename,
-              error: 'Erro ao fazer upload do arquivo',
-              code: 'PROCESSING_FAILED',
-            });
-          }
-        })();
-
-        uploadPromises.push(uploadPromise);
+        clearTimeout(timeoutId);
+        return reply.send({
+          uploads: uploadedFiles,
+          failed: failedFiles,
+        } as MultipleUploadResponse);
+      } catch (error) {
+        app.logger.error({ userId, error: (error as Error).message }, 'Erro geral');
+        clearTimeout(timeoutId);
+        return reply.status(500).send({
+          uploads: uploadedFiles,
+          failed: [
+            ...failedFiles,
+            {
+              filename: 'unknown',
+              error: 'Erro no servidor',
+              code: 'SERVER_ERROR',
+            },
+          ],
+        } as MultipleUploadResponse);
       }
-
-      // Wait for all uploads to complete
-      await Promise.all(uploadPromises);
-
-      app.logger.info(
-        { userId, uploaded: uploadedFiles.length, failed: failedFiles.length },
-        'Upload de múltiplos arquivos concluído'
-      );
-
-      return {
-        uploads: uploadedFiles,
-        failed: failedFiles,
-      } as MultipleUploadResponse;
-    } catch (error) {
-      app.logger.error(
-        { err: error, userId, stack: (error as Error).stack },
-        'Erro no endpoint de múltiplos uploads'
-      );
-      return reply.status(500).send({
-        uploads: uploadedFiles,
-        failed: [
-          ...failedFiles,
-          {
-            filename: 'unknown',
-            error: 'Erro geral do servidor ao processar uploads',
-            code: 'PROCESSING_FAILED',
-          },
-        ],
-      } as MultipleUploadResponse);
     }
-  });
+  );
 }
