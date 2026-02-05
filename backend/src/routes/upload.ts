@@ -128,24 +128,41 @@ async function uploadWithRetry(
 
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
     try {
+      logger.info({ userId, filename, attempt: attempt + 1, keyPath: key }, 'Iniciando upload para storage');
       const uploadedKey = await storage.upload(key, buffer);
-      logger.info({ userId, filename, attempt: attempt + 1 }, 'File uploaded');
+      logger.info({ userId, filename, attempt: attempt + 1, uploadedKey }, 'Upload para storage concluído');
       return uploadedKey;
     } catch (error) {
       lastError = error as Error;
+      const errorMsg = lastError.message || '';
+      const errorStr = String(error);
+
       logger.warn(
-        { userId, filename, attempt: attempt + 1, error: lastError.message },
-        `Tentativa de upload ${attempt + 1} falhou`
+        {
+          userId,
+          filename,
+          attempt: attempt + 1,
+          error: errorMsg,
+          errorFull: errorStr,
+          statusCode: (error as any)?.status || (error as any)?.statusCode,
+        },
+        `Tentativa ${attempt + 1} falhou: ${errorMsg}`
       );
 
       if (attempt < RETRY_ATTEMPTS - 1) {
         const delay = RETRY_DELAYS[attempt];
+        logger.info({ userId, filename, delay }, `Aguardando ${delay}ms antes de nova tentativa`);
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
 
-  throw lastError || new Error('Falha ao salvar arquivo');
+  const finalError = lastError || new Error('Falha ao salvar arquivo');
+  logger.error(
+    { userId, filename, errorMsg: finalError.message },
+    `Falha definitiva no upload após ${RETRY_ATTEMPTS} tentativas`
+  );
+  throw finalError;
 }
 
 export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
@@ -165,11 +182,18 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
       // Ensure JSON response on error
       reply.type('application/json');
 
+      // Extract authorization header for debugging
+      const authHeader = request.headers.authorization;
+      app.logger.info({ authHeader: authHeader ? 'present' : 'missing' }, 'Upload request received');
+
       const session = await requireAuth(request, reply);
-      if (!session) return;
+      if (!session) {
+        app.logger.error({ authHeader }, 'Authentication failed - no session');
+        return;
+      }
 
       const userId = session.user.id;
-      app.logger.info({ userId }, 'Iniciando upload');
+      app.logger.info({ userId }, 'Iniciando upload de documento');
 
       // Set timeout for entire operation
       const timeoutId = setTimeout(() => {
@@ -186,7 +210,7 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
       try {
         const data = await request.file();
         if (!data) {
-          app.logger.warn({ userId }, 'Arquivo não fornecido');
+          app.logger.warn({ userId }, 'Arquivo não fornecido na request');
           return reply.status(400).send({
             success: false,
             error: 'Nenhum arquivo foi enviado',
@@ -194,10 +218,15 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
           } as ErrorResponse);
         }
 
+        app.logger.info(
+          { userId, filename: data.filename, mimeType: data.mimetype, encoding: data.encoding },
+          'Arquivo recebido na request'
+        );
+
         // Validate file type
         const typeValidation = validateFileType(data.mimetype);
         if (!typeValidation.valid) {
-          app.logger.warn({ userId, mimeType: data.mimetype }, 'Tipo inválido');
+          app.logger.warn({ userId, mimeType: data.mimetype }, 'Tipo de arquivo não permitido');
           return reply.status(400).send({
             success: false,
             error: typeValidation.error || 'Tipo de arquivo inválido',
@@ -239,6 +268,11 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
         const finalFilename = `${timestamp}-${sanitized}`;
         const key = `documents/${userId}/${finalFilename}`;
 
+        app.logger.info(
+          { userId, originalFilename: data.filename, sanitized, finalFilename, storageKey: key },
+          'Preparando para armazenar arquivo'
+        );
+
         // Extract page count
         let pageCount = 1;
         if (data.mimetype === 'application/pdf') {
@@ -268,10 +302,29 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
             finalFilename
           );
         } catch (storageErr) {
+          const errorMsg = (storageErr as Error).message || '';
           app.logger.error(
-            { userId, filename: finalFilename, error: storageErr },
-            'Erro no armazenamento'
+            { userId, filename: finalFilename, error: errorMsg, errorType: storageErr?.constructor?.name },
+            'Erro ao fazer upload para storage'
           );
+
+          // Check for specific storage errors
+          if (errorMsg.includes('401') || errorMsg.includes('Unauthorized') || errorMsg.includes('permission')) {
+            return reply.status(401).send({
+              success: false,
+              error: 'Não autorizado para fazer upload. Verifique sua autenticação.',
+              code: 'STORAGE_UNAUTHORIZED',
+            } as ErrorResponse);
+          }
+
+          if (errorMsg.includes('403') || errorMsg.includes('Forbidden')) {
+            return reply.status(403).send({
+              success: false,
+              error: 'Acesso negado ao armazenamento. Contate o suporte.',
+              code: 'STORAGE_PERMISSION_DENIED',
+            } as ErrorResponse);
+          }
+
           return reply.status(500).send({
             success: false,
             error: 'Erro ao salvar arquivo. Tente novamente.',
@@ -325,8 +378,15 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
       // Ensure JSON response
       reply.type('application/json');
 
+      // Extract authorization header for debugging
+      const authHeader = request.headers.authorization;
+      app.logger.info({ authHeader: authHeader ? 'present' : 'missing' }, 'Multiple upload request received');
+
       const session = await requireAuth(request, reply);
-      if (!session) return;
+      if (!session) {
+        app.logger.error({ authHeader }, 'Authentication failed for multiple upload');
+        return;
+      }
 
       const userId = session.user.id;
       app.logger.info({ userId }, 'Upload múltiplo iniciado');
@@ -453,14 +513,28 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
                 'Arquivo uploaded'
               );
             } catch (error) {
+              const errorMsg = (error as Error).message || '';
               app.logger.error(
-                { filename: fileData.filename, error: (error as Error).message },
-                'Falha no upload'
+                { userId, filename: fileData.filename, error: errorMsg, errorType: error?.constructor?.name },
+                'Falha no upload de arquivo individual'
               );
+
+              // Determine specific error code
+              let errorCode = 'UPLOAD_ERROR';
+              let errorDisplay = 'Erro ao fazer upload';
+
+              if (errorMsg.includes('401') || errorMsg.includes('Unauthorized')) {
+                errorCode = 'STORAGE_UNAUTHORIZED';
+                errorDisplay = 'Não autorizado para upload';
+              } else if (errorMsg.includes('403') || errorMsg.includes('Forbidden')) {
+                errorCode = 'STORAGE_PERMISSION_DENIED';
+                errorDisplay = 'Acesso negado';
+              }
+
               failedFiles.push({
                 filename: fileData.filename,
-                error: 'Erro ao fazer upload',
-                code: 'UPLOAD_ERROR',
+                error: errorDisplay,
+                code: errorCode,
               });
             }
           })();
