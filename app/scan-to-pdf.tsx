@@ -133,54 +133,83 @@ export default function ScanToPDFScreen() {
     setProcessing(true);
     try {
       // Upload the image first
-      const { BACKEND_URL, getBearerToken } = await import('@/utils/api');
+      const { uploadFile, authenticatedPost, getErrorMessage } = await import('@/utils/api');
       
-      const formData = new FormData();
-      const file: any = {
+      const file = {
         uri: page.uri,
         name: `scan_${Date.now()}.jpg`,
         type: 'image/jpeg',
       };
-      formData.append('file', file);
 
-      const token = await getBearerToken();
-      const uploadResponse = await fetch(`${BACKEND_URL}/api/upload/document`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      });
+      console.log('ScanToPDFScreen: Uploading page...');
+      const uploadResult = await uploadFile(file);
 
-      if (!uploadResponse.ok) {
-        throw new Error(`Upload failed: ${uploadResponse.status}`);
+      if (!uploadResult.success || !uploadResult.url) {
+        throw new Error(uploadResult.error || 'Upload failed');
       }
 
-      const uploadData = await uploadResponse.json();
-      console.log('ScanToPDFScreen: Page uploaded:', uploadData);
+      console.log('ScanToPDFScreen: Page uploaded:', uploadResult);
 
-      // Process with AI to enhance document
-      const { authenticatedPost } = await import('@/utils/api');
-      const processResponse = await authenticatedPost('/api/ai/enhance-document', {
-        imageUrl: uploadData.url,
-        options: {
-          autoCrop: true,
-          perspectiveCorrection: true,
-          enhanceContrast: true,
-        },
-      });
+      // Process with AI to enhance document (with timeout and fallback)
+      console.log('ScanToPDFScreen: Processing with AI...');
+      
+      try {
+        // Create a timeout promise (30 seconds)
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('TIMEOUT')), 30000);
+        });
 
-      console.log('ScanToPDFScreen: Page processed:', processResponse);
+        const processPromise = authenticatedPost('/api/ai/enhance-document', {
+          imageUrl: uploadResult.url,
+          options: {
+            autoCrop: true,
+            perspectiveCorrection: true,
+            enhanceContrast: true,
+          },
+        });
 
-      // Update the page with processed version
-      setPages(prev => prev.map(p => 
-        p.uri === page.uri 
-          ? { ...p, processed: true, processedUrl: processResponse.processedImageUrl }
-          : p
-      ));
+        const processResponse = await Promise.race([processPromise, timeoutPromise]) as any;
+
+        console.log('ScanToPDFScreen: Page processed:', processResponse);
+
+        // Check if processing was successful
+        if (processResponse.success && processResponse.processedImageUrl) {
+          // Update the page with processed version
+          setPages(prev => prev.map(p => 
+            p.uri === page.uri 
+              ? { ...p, processed: true, processedUrl: processResponse.processedImageUrl }
+              : p
+          ));
+        } else {
+          // Fallback: Use original image if AI processing failed
+          console.warn('ScanToPDFScreen: AI processing failed, using original image');
+          setPages(prev => prev.map(p => 
+            p.uri === page.uri 
+              ? { ...p, processed: true, processedUrl: uploadResult.url }
+              : p
+          ));
+        }
+      } catch (aiError: any) {
+        // Fallback: Use original image if AI processing times out or fails
+        console.warn('ScanToPDFScreen: AI processing error, using original image:', aiError);
+        
+        setPages(prev => prev.map(p => 
+          p.uri === page.uri 
+            ? { ...p, processed: true, processedUrl: uploadResult.url }
+            : p
+        ));
+      }
     } catch (error) {
       console.error('ScanToPDFScreen: Error processing page:', error);
-      showError('Erro', 'Não foi possível processar a página. Tente novamente.');
+      const { getErrorMessage } = await import('@/utils/api');
+      showError('Erro', getErrorMessage('PROCESSING_FAILED'));
+      
+      // Still mark as processed with original URI so user can continue
+      setPages(prev => prev.map(p => 
+        p.uri === page.uri 
+          ? { ...p, processed: true, processedUrl: page.uri }
+          : p
+      ));
     } finally {
       setProcessing(false);
     }

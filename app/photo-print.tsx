@@ -116,56 +116,51 @@ export default function PhotoPrintScreen() {
   const uploadFiles = async (assets: any[]) => {
     setUploading(true);
     try {
-      const { BACKEND_URL, getBearerToken } = await import('@/utils/api');
+      const { uploadMultipleFiles, getErrorMessage } = await import('@/utils/api');
       
-      for (const asset of assets) {
-        const formData = new FormData();
-        const fileUri = asset.uri;
-        const fileName = asset.name || asset.fileName || `photo_${Date.now()}`;
-        const mimeType = asset.mimeType || 'image/jpeg';
+      const filesToUpload = assets.map(asset => ({
+        uri: asset.uri,
+        name: asset.name || asset.fileName || `photo_${Date.now()}.jpg`,
+        type: asset.mimeType || 'image/jpeg',
+      }));
 
-        const file: any = {
-          uri: fileUri,
-          name: fileName,
-          type: mimeType,
-        };
+      console.log('PhotoPrintScreen: Uploading files:', filesToUpload.length);
+      
+      const result = await uploadMultipleFiles(filesToUpload, (progress) => {
+        console.log('PhotoPrintScreen: Upload progress:', progress + '%');
+      });
 
-        formData.append('file', file);
+      console.log('PhotoPrintScreen: Upload complete:', result);
 
-        console.log('PhotoPrintScreen: Uploading file:', fileName);
-        
-        const token = await getBearerToken();
-        const response = await fetch(`${BACKEND_URL}/api/upload/document`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-          body: formData,
-        });
-
-        if (!response.ok) {
-          throw new Error(`Upload failed: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('PhotoPrintScreen: File uploaded:', data);
-
-        const newFile: UploadedFile = {
-          uri: fileUri,
-          name: data.filename || fileName,
-          size: data.size || asset.size || 0,
-          mimeType: data.mimeType || mimeType,
-          pageCount: data.pageCount || 1,
-          url: data.url,
+      // Add successfully uploaded files
+      if (result.uploads.length > 0) {
+        const newFiles: UploadedFile[] = result.uploads.map(upload => ({
+          uri: assets.find(a => (a.name || a.fileName) === upload.filename)?.uri || '',
+          name: upload.filename,
+          size: upload.size,
+          mimeType: upload.mimeType,
+          pageCount: upload.pageCount,
+          url: upload.url,
           photoSize: '10x15',
           copies: 1,
-        };
+        }));
 
-        setFiles(prev => [...prev, newFile]);
+        setFiles(prev => [...prev, ...newFiles]);
+      }
+
+      // Show errors for failed uploads
+      if (result.failed.length > 0) {
+        const failedNames = result.failed.map(f => f.filename).join(', ');
+        const errorMsg = result.failed[0].error;
+        showError(
+          'Alguns arquivos falharam',
+          `Não foi possível fazer upload de: ${failedNames}\n\nErro: ${errorMsg}`
+        );
       }
     } catch (error) {
       console.error('PhotoPrintScreen: Error uploading files:', error);
-      showError('Erro', 'Não foi possível fazer upload dos arquivos. Tente novamente.');
+      const { getErrorMessage } = await import('@/utils/api');
+      showError('Erro no Upload', getErrorMessage('UPLOAD_FAILED'));
     } finally {
       setUploading(false);
     }

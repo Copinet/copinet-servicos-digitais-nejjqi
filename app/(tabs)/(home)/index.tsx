@@ -67,6 +67,11 @@ export default function HomeScreen() {
     router.push('/(tabs)/orders');
   };
 
+  const handleAllServicesPress = () => {
+    console.log('HomeScreen: All services button pressed');
+    router.push('/(tabs)/services');
+  };
+
   const handleLoginPress = () => {
     console.log('HomeScreen: Login button pressed');
     router.push('/auth');
@@ -219,6 +224,25 @@ export default function HomeScreen() {
               );
             })}
           </View>
+
+          <TouchableOpacity 
+            style={styles.allServicesButton}
+            onPress={handleAllServicesPress}
+          >
+            <IconSymbol 
+              ios_icon_name="square.grid.2x2.fill" 
+              android_material_icon_name="apps" 
+              size={24} 
+              color="#FFFFFF" 
+            />
+            <Text style={styles.allServicesButtonText}>Todos os Serviços</Text>
+            <IconSymbol 
+              ios_icon_name="arrow.right" 
+              android_material_icon_name="arrow-forward" 
+              size={20} 
+              color="#FFFFFF" 
+            />
+          </TouchableOpacity>
 
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Fazemos pra Você</Text>
@@ -469,7 +493,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
-    marginBottom: 8,
+    marginBottom: 16,
   },
   quickServiceCard: {
     width: '31%',
@@ -498,6 +522,29 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: 'center',
     lineHeight: 16,
+  },
+  allServicesButton: {
+    backgroundColor: colors.secondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+    marginBottom: 8,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  allServicesButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    flex: 1,
+    textAlign: 'center',
   },
   explanationCard: {
     backgroundColor: colors.card,

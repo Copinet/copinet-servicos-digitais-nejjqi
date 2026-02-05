@@ -131,57 +131,99 @@ export default function Photo3x4Screen() {
     setProcessing(true);
     try {
       // Upload the photo first
-      const { BACKEND_URL, getBearerToken } = await import('@/utils/api');
+      const { uploadFile, authenticatedPost, getErrorMessage } = await import('@/utils/api');
       
-      const formData = new FormData();
-      const file: any = {
+      const file = {
         uri: selectedPhoto.uri,
         name: `photo_${Date.now()}.jpg`,
         type: 'image/jpeg',
       };
-      formData.append('file', file);
 
-      const token = await getBearerToken();
-      const uploadResponse = await fetch(`${BACKEND_URL}/api/upload/document`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      });
+      console.log('Photo3x4Screen: Uploading photo...');
+      const uploadResult = await uploadFile(file);
 
-      if (!uploadResponse.ok) {
-        throw new Error(`Upload failed: ${uploadResponse.status}`);
+      if (!uploadResult.success || !uploadResult.url) {
+        throw new Error(uploadResult.error || 'Upload failed');
       }
 
-      const uploadData = await uploadResponse.json();
-      console.log('Photo3x4Screen: Photo uploaded:', uploadData);
+      console.log('Photo3x4Screen: Photo uploaded:', uploadResult);
 
-      // Process with AI to remove background
-      const { authenticatedPost } = await import('@/utils/api');
-      const processResponse = await authenticatedPost('/api/ai/remove-background', {
-        imageUrl: uploadData.url,
-      });
+      // Process with AI to remove background (with timeout and fallback)
+      console.log('Photo3x4Screen: Processing with AI...');
+      
+      try {
+        // Create a timeout promise (30 seconds)
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('TIMEOUT')), 30000);
+        });
 
-      console.log('Photo3x4Screen: Photo processed:', processResponse);
+        const processPromise = authenticatedPost('/api/ai/remove-background', {
+          imageUrl: uploadResult.url,
+        });
 
-      // Update the photo with processed version
-      setPhotos(prev => prev.map(photo => 
-        photo.uri === selectedPhoto.uri 
-          ? { ...photo, processed: true, processedUrl: processResponse.processedImageUrl }
-          : photo
-      ));
+        const processResponse = await Promise.race([processPromise, timeoutPromise]) as any;
 
-      setSelectedPhoto({
-        ...selectedPhoto,
-        processed: true,
-        processedUrl: processResponse.processedImageUrl,
-      });
+        console.log('Photo3x4Screen: Photo processed:', processResponse);
 
-      showError('Sucesso', 'Foto processada com sucesso! Fundo branco aplicado.');
+        // Check if processing was successful
+        if (processResponse.success && processResponse.processedImageUrl) {
+          // Update the photo with processed version
+          setPhotos(prev => prev.map(photo => 
+            photo.uri === selectedPhoto.uri 
+              ? { ...photo, processed: true, processedUrl: processResponse.processedImageUrl }
+              : photo
+          ));
+
+          setSelectedPhoto({
+            ...selectedPhoto,
+            processed: true,
+            processedUrl: processResponse.processedImageUrl,
+          });
+
+          showError('Sucesso', 'Foto processada com sucesso! Fundo branco aplicado.');
+        } else {
+          // Fallback: Use original image if AI processing failed
+          console.warn('Photo3x4Screen: AI processing failed, using original image');
+          setPhotos(prev => prev.map(photo => 
+            photo.uri === selectedPhoto.uri 
+              ? { ...photo, processed: true, processedUrl: uploadResult.url }
+              : photo
+          ));
+
+          setSelectedPhoto({
+            ...selectedPhoto,
+            processed: true,
+            processedUrl: uploadResult.url,
+          });
+
+          showError('Aviso', 'Não foi possível remover o fundo automaticamente. A foto original será usada.');
+        }
+      } catch (aiError: any) {
+        // Fallback: Use original image if AI processing times out or fails
+        console.warn('Photo3x4Screen: AI processing error, using original image:', aiError);
+        
+        setPhotos(prev => prev.map(photo => 
+          photo.uri === selectedPhoto.uri 
+            ? { ...photo, processed: true, processedUrl: uploadResult.url }
+            : photo
+        ));
+
+        setSelectedPhoto({
+          ...selectedPhoto,
+          processed: true,
+          processedUrl: uploadResult.url,
+        });
+
+        const errorMsg = aiError.message === 'TIMEOUT' 
+          ? 'O processamento demorou muito. A foto original será usada.'
+          : 'Não foi possível remover o fundo automaticamente. A foto original será usada.';
+        
+        showError('Aviso', errorMsg);
+      }
     } catch (error) {
       console.error('Photo3x4Screen: Error processing photo:', error);
-      showError('Erro', 'Não foi possível processar a foto. Tente novamente.');
+      const { getErrorMessage } = await import('@/utils/api');
+      showError('Erro', getErrorMessage('PROCESSING_FAILED'));
     } finally {
       setProcessing(false);
     }

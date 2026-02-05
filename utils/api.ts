@@ -233,3 +233,155 @@ export const authenticatedDelete = async <T = any>(endpoint: string, data: any =
     body: JSON.stringify(data),
   });
 };
+
+/**
+ * Upload a single file with progress tracking
+ * 
+ * @param file - File object with uri, name, and type
+ * @param onProgress - Optional callback for upload progress (0-100)
+ * @returns Upload response with url, filename, size, mimeType, pageCount
+ */
+export const uploadFile = async (
+  file: { uri: string; name: string; type: string },
+  onProgress?: (progress: number) => void
+): Promise<{
+  success: boolean;
+  url?: string;
+  filename?: string;
+  size?: number;
+  mimeType?: string;
+  pageCount?: number;
+  error?: string;
+  code?: string;
+}> => {
+  if (!isBackendConfigured()) {
+    throw new Error("Backend URL not configured. Please rebuild the app.");
+  }
+
+  const formData = new FormData();
+  formData.append('file', file as any);
+
+  const token = await getBearerToken();
+  const url = `${BACKEND_URL}/api/upload/document`;
+
+  console.log('[API] Uploading file:', file.name);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('[API] Upload failed:', response.status, data);
+      return {
+        success: false,
+        error: data.error || `Upload failed: ${response.status}`,
+        code: data.code || 'UPLOAD_FAILED',
+      };
+    }
+
+    console.log('[API] Upload successful:', data);
+    return {
+      success: true,
+      ...data,
+    };
+  } catch (error) {
+    console.error('[API] Upload error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Upload failed',
+      code: 'NETWORK_ERROR',
+    };
+  }
+};
+
+/**
+ * Upload multiple files in parallel with batch processing
+ * 
+ * @param files - Array of file objects with uri, name, and type
+ * @param onProgress - Optional callback for overall progress (0-100)
+ * @returns Upload results with successful uploads and failed uploads
+ */
+export const uploadMultipleFiles = async (
+  files: Array<{ uri: string; name: string; type: string }>,
+  onProgress?: (progress: number) => void
+): Promise<{
+  uploads: Array<{
+    url: string;
+    filename: string;
+    size: number;
+    mimeType: string;
+    pageCount: number;
+  }>;
+  failed: Array<{
+    filename: string;
+    error: string;
+  }>;
+}> => {
+  if (!isBackendConfigured()) {
+    throw new Error("Backend URL not configured. Please rebuild the app.");
+  }
+
+  console.log('[API] Uploading multiple files:', files.length);
+
+  const uploads: any[] = [];
+  const failed: any[] = [];
+  let completed = 0;
+
+  // Upload files in parallel (max 3 at a time to avoid overwhelming the server)
+  const batchSize = 3;
+  for (let i = 0; i < files.length; i += batchSize) {
+    const batch = files.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map(file => uploadFile(file))
+    );
+
+    results.forEach((result, index) => {
+      const file = batch[index];
+      if (result.success && result.url) {
+        uploads.push({
+          url: result.url,
+          filename: result.filename || file.name,
+          size: result.size || 0,
+          mimeType: result.mimeType || file.type,
+          pageCount: result.pageCount || 1,
+        });
+      } else {
+        failed.push({
+          filename: file.name,
+          error: result.error || 'Upload failed',
+        });
+      }
+      completed++;
+      if (onProgress) {
+        onProgress(Math.round((completed / files.length) * 100));
+      }
+    });
+  }
+
+  console.log('[API] Batch upload complete:', { uploads: uploads.length, failed: failed.length });
+  return { uploads, failed };
+};
+
+/**
+ * Get user-friendly error message in Portuguese
+ */
+export const getErrorMessage = (code?: string, defaultMessage?: string): string => {
+  const errorMessages: Record<string, string> = {
+    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 100MB.',
+    'INVALID_FORMAT': 'Formato de arquivo inválido. Use PDF, Word, ou imagens (JPG, PNG).',
+    'PROCESSING_FAILED': 'Não foi possível processar o arquivo. Tente novamente.',
+    'TIMEOUT': 'O processamento demorou muito. Tente com um arquivo menor.',
+    'NETWORK_ERROR': 'Erro de conexão. Verifique sua internet e tente novamente.',
+    'UPLOAD_FAILED': 'Falha no upload. Tente novamente.',
+    'UNAUTHORIZED': 'Você precisa fazer login para continuar.',
+  };
+
+  return errorMessages[code || ''] || defaultMessage || 'Ocorreu um erro. Tente novamente.';
+};

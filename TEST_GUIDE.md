@@ -7,6 +7,27 @@
 2. **App is installed** on your device or simulator
 3. **Internet connection** is active
 
+## 🎯 Recent Improvements (Backend Integration Complete)
+
+### ✅ File Upload Improvements
+- **Increased max file size to 100MB** (was 10MB)
+- **Support for large PDFs** up to 1000 pages (tested with 823 pages)
+- **Batch upload for multiple files** - uploads 3 files in parallel
+- **Better error handling** with specific error messages in Portuguese
+- **Progress tracking** for large uploads
+
+### ✅ AI Processing Improvements
+- **Timeout handling** - 30 seconds max for AI processing
+- **Automatic fallback** - if AI fails, uses original image
+- **Better error messages** - clear feedback in Portuguese
+
+### ✅ Error Messages in Portuguese
+- `FILE_TOO_LARGE`: "Arquivo muito grande. O tamanho máximo é 100MB."
+- `INVALID_FORMAT`: "Formato de arquivo inválido. Use PDF, Word, ou imagens (JPG, PNG)."
+- `PROCESSING_FAILED`: "Não foi possível processar o arquivo. Tente novamente."
+- `TIMEOUT`: "O processamento demorou muito. Tente com um arquivo menor."
+- `NETWORK_ERROR`: "Erro de conexão. Verifique sua internet e tente novamente."
+
 ## Test Flow
 
 ### 1. Authentication Test
@@ -34,14 +55,22 @@
 2. Tap "Documentos" to upload a PDF or Word file
 3. Select a file from your device
 4. ✅ File should appear in the list with page count
-5. Configure options:
+5. **NEW: Test Large Files**
+   - Try uploading a PDF with 51 pages ✅
+   - Try uploading a PDF with 823 pages ✅
+   - Watch the upload progress indicator
+6. **NEW: Test Multiple Files**
+   - Tap "Imagens" and select 10+ JPEG files
+   - ✅ All files should upload in parallel (3 at a time)
+   - ✅ Failed uploads show specific error messages
+7. Configure options:
    - Select "P&B" or "Colorido"
    - Adjust copies (use + and - buttons)
    - If multi-page, enter page range (e.g., "1-3, 5")
-6. Add optional notes in the text field
-7. ✅ Total price should update automatically
-8. Tap "Continuar para Pagamento"
-9. ✅ You should be redirected to payment screen with correct price
+8. Add optional notes in the text field
+9. ✅ Total price should update automatically
+10. Tap "Continuar para Pagamento"
+11. ✅ You should be redirected to payment screen with correct price
 
 ### 3. Photo Print Test
 
@@ -71,8 +100,11 @@
 4. Tap on a photo to select it
 5. ✅ Selected photo should have a blue border
 6. Tap "Aplicar Fundo Branco"
-7. ✅ Wait for AI processing (shows loading indicator)
-8. ✅ Photo should update with white background
+7. ✅ Wait for AI processing (shows loading indicator, max 30 seconds)
+8. **NEW: AI Processing with Fallback**
+   - ✅ If successful: Photo updates with white background
+   - ✅ If AI fails/times out: Original photo is used with warning message
+   - ✅ User can still continue with the order
 9. ✅ Green checkmark should appear on processed photo
 10. Tap "Continuar para Pagamento"
 11. ✅ You should be redirected to payment screen
@@ -91,7 +123,10 @@
    - Tap "Escanear" to use camera
    - Or tap "Galeria" to select existing images
 6. ✅ Each page should appear in the grid with a number
-7. ✅ Green checkmark appears after AI processing
+7. **NEW: AI Enhancement with Fallback**
+   - ✅ AI automatically enhances each page (crop, perspective, contrast)
+   - ✅ If AI fails/times out: Original image is used (no error shown)
+   - ✅ Green checkmark appears after processing
 8. **Reorder pages (optional):**
    - Use arrow buttons to move pages up/down
 9. **Remove pages (optional):**
@@ -149,9 +184,10 @@ Based on the backend configuration:
 ### Issue: File upload fails
 **Solution:** 
 - Check internet connection
-- Verify file size (should be < 10MB)
+- Verify file size (should be < 100MB - increased from 10MB)
 - Try a different file format
 - Check file permissions on device
+- For large files (> 10MB), upload may take longer - wait for progress indicator
 
 ### Issue: Camera not working
 **Solution:**

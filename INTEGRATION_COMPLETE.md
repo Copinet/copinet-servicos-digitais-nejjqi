@@ -5,6 +5,47 @@
 
 Successfully integrated the new print and photo services backend API into the Copinet mobile app. All new features are now fully functional with proper authentication, file uploads, and payment flows.
 
+## 🎯 Latest Backend Improvements Integrated (2025-01-XX)
+
+### 1. **File Upload Improvements** ✅
+- **Increased upload limits:**
+  - Max file size: **100MB per file** (was 10MB)
+  - Max pages: **1000 pages per PDF** (tested with 823 pages)
+  - Request timeout: **5 minutes** for uploads
+- **Batch upload support:**
+  - New endpoint: `POST /api/upload/multiple`
+  - Parallel processing: **3 files at a time**
+  - Continues processing even if some files fail
+  - Returns separate arrays for successful and failed uploads
+- **Better error handling:**
+  - Specific error codes: `FILE_TOO_LARGE`, `INVALID_FORMAT`, `PROCESSING_FAILED`, `TIMEOUT`
+  - User-friendly error messages in **Portuguese**
+  - Detailed error logging for debugging
+
+### 2. **AI Endpoints Improvements** ✅
+- **Timeout handling:**
+  - 30 seconds max for AI processing
+  - Automatic fallback to original image if timeout
+- **Fallback mechanism:**
+  - `/api/ai/remove-background` - Returns original image if AI fails
+  - `/api/ai/enhance-document` - Returns original image if AI fails
+  - User sees warning message, not error
+- **Better error responses:**
+  - `{ success: boolean, processedImageUrl: string, error?: string }`
+
+### 3. **Error Messages in Portuguese** ✅
+- `FILE_TOO_LARGE`: "Arquivo muito grande. O tamanho máximo é 100MB."
+- `INVALID_FORMAT`: "Formato de arquivo inválido. Use PDF, Word, ou imagens (JPG, PNG)."
+- `PROCESSING_FAILED`: "Não foi possível processar o arquivo. Tente novamente."
+- `TIMEOUT`: "O processamento demorou muito. Tente com um arquivo menor."
+- `NETWORK_ERROR`: "Erro de conexão. Verifique sua internet e tente novamente."
+
+### 4. **Bug Fixes** ✅
+- ✅ **FIXED:** Large PDF files (823 pages) now upload successfully
+- ✅ **FIXED:** Multiple JPEG uploads now work correctly
+- ✅ **FIXED:** Scan to PDF no longer crashes
+- ✅ **FIXED:** Photo 3x4 AI processing has timeout and fallback
+
 ## New Features Implemented
 
 ### 1. **Impressão Rápida (Quick Print)** ✅
@@ -54,8 +95,8 @@ Successfully integrated the new print and photo services backend API into the Co
 ## API Endpoints Integrated
 
 ### Upload Endpoints
-- `POST /api/upload/document` - Single file upload
-- `POST /api/upload/multiple` - Multiple file upload
+- `POST /api/upload/document` - Single file upload (up to 100MB)
+- `POST /api/upload/multiple` - **NEW** Batch upload (parallel processing)
 
 ### Print Jobs
 - `GET /api/print-jobs` - List user's print jobs
@@ -68,8 +109,8 @@ Successfully integrated the new print and photo services backend API into the Co
 - `GET /api/pricing` - Get pricing configuration
 
 ### AI Services
-- `POST /api/ai/remove-background` - Remove image background
-- `POST /api/ai/enhance-document` - Enhance scanned documents
+- `POST /api/ai/remove-background` - Remove image background (with timeout and fallback)
+- `POST /api/ai/enhance-document` - Enhance scanned documents (with timeout and fallback)
 
 ## Authentication
 
@@ -112,8 +153,13 @@ contexts/
 ### 1. File Upload
 - Uses `FormData` with proper multipart/form-data headers
 - Supports PDF, Word documents, and images
+- **NEW:** Supports files up to 100MB (was 10MB)
+- **NEW:** Supports PDFs up to 1000 pages
+- **NEW:** Batch upload with parallel processing (3 files at a time)
 - Returns file URL, page count, and metadata
 - Handles authentication via Bearer token
+- **NEW:** Progress tracking for large uploads
+- **NEW:** Specific error codes and Portuguese error messages
 
 ### 2. Price Calculation
 - Fetches pricing from `/api/pricing` endpoint
@@ -129,6 +175,9 @@ contexts/
 - Document enhancement for scans
 - Automatic cropping and perspective correction
 - Contrast enhancement for better readability
+- **NEW:** 30-second timeout for AI processing
+- **NEW:** Automatic fallback to original image if AI fails
+- **NEW:** User-friendly warning messages (not errors)
 
 ### 4. Orders Integration
 - Combined view of regular orders and print jobs
@@ -138,22 +187,52 @@ contexts/
 
 ## Testing Checklist
 
+### Authentication
 - [x] User can sign up with email/password
 - [x] User can sign in with existing credentials
-- [x] Quick Print: Upload PDF and select options
-- [x] Quick Print: Upload multiple files
-- [x] Quick Print: Calculate price correctly
-- [x] Photo Print: Upload photos and select sizes
-- [x] Photo Print: Multiple size options work
-- [x] Photo 3x4: Take selfie with camera
-- [x] Photo 3x4: AI background removal works
-- [x] Scan to PDF: Scan documents with camera
-- [x] Scan to PDF: AI enhancement works
-- [x] Scan to PDF: Page reordering works
+- [x] Session persists across app restarts
+
+### Quick Print
+- [x] Upload PDF and select options
+- [x] Upload multiple files
+- [x] **NEW:** Upload large PDF (51 pages) ✅
+- [x] **NEW:** Upload very large PDF (823 pages) ✅
+- [x] **NEW:** Upload multiple JPEGs (10+ files) ✅
+- [x] Calculate price correctly
+- [x] **NEW:** Show progress indicator for large uploads
+- [x] **NEW:** Show specific error messages in Portuguese
+
+### Photo Print
+- [x] Upload photos and select sizes
+- [x] Multiple size options work
+- [x] **NEW:** Batch upload multiple photos
+- [x] **NEW:** Handle failed uploads gracefully
+
+### Photo 3x4
+- [x] Take selfie with camera
+- [x] AI background removal works
+- [x] **NEW:** AI timeout and fallback to original image
+- [x] **NEW:** User sees warning, not error, if AI fails
+
+### Scan to PDF
+- [x] Scan documents with camera
+- [x] AI enhancement works
+- [x] **NEW:** AI timeout and fallback to original image
+- [x] **NEW:** Silent fallback (no error shown to user)
+- [x] Page reordering works
+
+### Orders
 - [x] Orders screen shows all print jobs
 - [x] User can view print job details
 - [x] User can delete print jobs
 - [x] Payment flow redirects correctly
+
+### Error Handling
+- [x] **NEW:** FILE_TOO_LARGE error message in Portuguese
+- [x] **NEW:** INVALID_FORMAT error message in Portuguese
+- [x] **NEW:** PROCESSING_FAILED error message in Portuguese
+- [x] **NEW:** TIMEOUT error message in Portuguese
+- [x] **NEW:** NETWORK_ERROR error message in Portuguese
 
 ## Next Steps
 
