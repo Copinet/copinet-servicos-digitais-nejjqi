@@ -63,9 +63,9 @@ export default function HomeScreen() {
     router.push('/stores-map');
   };
 
-  const handleViewAllServicesPress = () => {
-    console.log('HomeScreen: View all services pressed');
-    router.push('/(tabs)/services');
+  const handleNotificationsPress = () => {
+    console.log('HomeScreen: Notifications button pressed');
+    // TODO: Navigate to notifications screen when implemented
   };
 
   if (authLoading || loading) {
@@ -76,17 +76,22 @@ export default function HomeScreen() {
     );
   }
 
-  const quickServices = services.filter((s: any) => 
-    ['Impressão Rápida', 'CPF', 'Certidões', 'Foto 3x4', 'Currículo', 'Escanear Doc'].includes(s.name)
-  ).slice(0, 6);
+  // Define the specific services for "Serviços Mais Acessados"
+  const mostAccessedServiceNames = [
+    'Impressão',
+    'Currículo',
+    'Certidões',
+    'Escanear / Digitalizar PDF',
+    'Foto 3x4',
+    'Situação CPF'
+  ];
 
-  const fazemosPraVoceServices = services.filter((s: any) => 
-    s.type === 'fazemos_pra_voce' || s.type === 'both'
-  ).slice(0, 3);
+  const mostAccessedServices = mostAccessedServiceNames.map(name => {
+    const found = services.find(s => s.name.includes(name.split(' ')[0]));
+    return found || { id: name, name, price: 0 };
+  });
 
-  const facaSozinhoServices = services.filter((s: any) => 
-    s.type === 'faca_sozinho' || s.type === 'both'
-  ).slice(0, 3);
+  const userName = user?.name || 'Visitante';
 
   return (
     <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
@@ -98,24 +103,7 @@ export default function HomeScreen() {
       <ScrollView style={commonStyles.container} contentContainerStyle={styles.scrollContent}>
         <View style={commonStyles.section}>
           {/* App Name */}
-          <Text style={styles.appName}>Copinet Serviços Digitais</Text>
-          <Text style={styles.appSubtitle}>
-            Documentos, impressões e serviços gráficos de forma simples e rápida. Nós fazemos pra você!
-          </Text>
-
-          {/* Welcome Message */}
-          <View style={styles.welcomeCard}>
-            <Text style={styles.welcomeGreeting}>Bem-vindo(a)</Text>
-            <Text style={styles.welcomeUser}>Visitante</Text>
-            <TouchableOpacity style={styles.notificationButton}>
-              <IconSymbol 
-                ios_icon_name="bell.fill" 
-                android_material_icon_name="notifications" 
-                size={24} 
-                color={colors.secondary} 
-              />
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.appName}>COPINET SERVIÇOS DIGITAIS</Text>
 
           {/* Login Button - Only show if user is NOT logged in */}
           {!user && (
@@ -125,6 +113,25 @@ export default function HomeScreen() {
             >
               <Text style={styles.loginButtonText}>Entrar / Cadastre-se</Text>
             </TouchableOpacity>
+          )}
+
+          {/* Welcome Card with Notification Bell */}
+          {user && (
+            <View style={styles.welcomeCard}>
+              <Text style={styles.welcomeGreeting}>Bem-vindo(a)</Text>
+              <Text style={styles.welcomeUser}>{userName}</Text>
+              <TouchableOpacity 
+                style={styles.notificationButton}
+                onPress={handleNotificationsPress}
+              >
+                <IconSymbol 
+                  ios_icon_name="bell.fill" 
+                  android_material_icon_name="notifications" 
+                  size={24} 
+                  color={colors.secondary} 
+                />
+              </TouchableOpacity>
+            </View>
           )}
 
           {/* Nossas Lojas Section */}
@@ -180,22 +187,22 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.quickServicesGrid}>
-            {quickServices.map((service, index) => {
+            {mostAccessedServices.map((service, index) => {
               const serviceName = service.name;
               let iconName = 'description';
               
               if (serviceName.includes('Impressão')) iconName = 'print';
-              else if (serviceName.includes('CPF')) iconName = 'badge';
-              else if (serviceName.includes('Certidões')) iconName = 'description';
-              else if (serviceName.includes('Foto')) iconName = 'camera';
               else if (serviceName.includes('Currículo')) iconName = 'work';
-              else if (serviceName.includes('Escanear')) iconName = 'scanner';
+              else if (serviceName.includes('Certidões')) iconName = 'description';
+              else if (serviceName.includes('Escanear') || serviceName.includes('Digitalizar')) iconName = 'scanner';
+              else if (serviceName.includes('Foto')) iconName = 'camera';
+              else if (serviceName.includes('CPF') || serviceName.includes('Situação')) iconName = 'badge';
 
               return (
                 <TouchableOpacity
                   key={index}
                   style={styles.quickServiceCard}
-                  onPress={() => handleServicePress(service)}
+                  onPress={() => service.id && handleServicePress(service)}
                 >
                   <View style={styles.quickServiceIcon}>
                     <IconSymbol 
@@ -211,48 +218,29 @@ export default function HomeScreen() {
             })}
           </View>
 
-          {/* Fazemos pra Você Section */}
+          {/* Fazemos pra Você Section - ONLY EXPLANATION */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Fazemos pra Você</Text>
-            <TouchableOpacity onPress={handleViewAllServicesPress}>
-              <Text style={styles.viewAllText}>Ver todos</Text>
-            </TouchableOpacity>
           </View>
 
-          {fazemosPraVoceServices.map((service, index) => {
-            const serviceName = service.name;
-            const servicePrice = service.price;
-            const formattedPrice = `R$ ${servicePrice.toFixed(2)}`;
+          <View style={styles.explanationCard}>
+            <View style={styles.explanationIcon}>
+              <IconSymbol 
+                ios_icon_name="hand.raised.fill" 
+                android_material_icon_name="pan-tool" 
+                size={40} 
+                color={colors.secondary} 
+              />
+            </View>
+            <Text style={styles.explanationTitle}>Nossa equipe faz para você</Text>
+            <Text style={styles.explanationText}>
+              Nesta modalidade, nossa equipe especializada cuida de tudo para você. 
+              Basta nos fornecer os dados necessários e nós emitimos seus documentos, 
+              certidões e serviços em sites oficiais. Você recebe tudo pronto!
+            </Text>
+          </View>
 
-            return (
-              <TouchableOpacity
-                key={index}
-                style={styles.serviceListCard}
-                onPress={() => handleServicePress(service)}
-              >
-                <View style={styles.serviceListIcon}>
-                  <IconSymbol 
-                    ios_icon_name="hand.raised.fill" 
-                    android_material_icon_name="pan-tool" 
-                    size={24} 
-                    color={colors.secondary} 
-                  />
-                </View>
-                <View style={styles.serviceListInfo}>
-                  <Text style={styles.serviceListName}>{serviceName}</Text>
-                  <Text style={styles.serviceListPrice}>{formattedPrice}</Text>
-                </View>
-                <IconSymbol 
-                  ios_icon_name="chevron.right" 
-                  android_material_icon_name="chevron-right" 
-                  size={24} 
-                  color={colors.textSecondary} 
-                />
-              </TouchableOpacity>
-            );
-          })}
-
-          {/* Faça Sozinho Section */}
+          {/* Faça Sozinho Section - ONLY EXPLANATION */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Faça Sozinho</Text>
             <View style={styles.discountBadge}>
@@ -260,44 +248,22 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {facaSozinhoServices.map((service, index) => {
-            const serviceName = service.name;
-            const servicePrice = service.price;
-            const originalPrice = servicePrice;
-            const discountedPrice = servicePrice * 0.8;
-            const formattedOriginalPrice = `R$ ${originalPrice.toFixed(2)}`;
-            const formattedDiscountedPrice = `R$ ${discountedPrice.toFixed(2)}`;
-
-            return (
-              <TouchableOpacity
-                key={index}
-                style={styles.serviceListCard}
-                onPress={() => handleServicePress(service)}
-              >
-                <View style={[styles.serviceListIcon, { backgroundColor: colors.accent }]}>
-                  <IconSymbol 
-                    ios_icon_name="person.fill" 
-                    android_material_icon_name="person" 
-                    size={24} 
-                    color="#FFFFFF" 
-                  />
-                </View>
-                <View style={styles.serviceListInfo}>
-                  <Text style={styles.serviceListName}>{serviceName}</Text>
-                  <View style={styles.priceContainer}>
-                    <Text style={styles.originalPrice}>{formattedOriginalPrice}</Text>
-                    <Text style={styles.discountedPrice}>{formattedDiscountedPrice}</Text>
-                  </View>
-                </View>
-                <IconSymbol 
-                  ios_icon_name="chevron.right" 
-                  android_material_icon_name="chevron-right" 
-                  size={24} 
-                  color={colors.textSecondary} 
-                />
-              </TouchableOpacity>
-            );
-          })}
+          <View style={styles.explanationCard}>
+            <View style={[styles.explanationIcon, { backgroundColor: colors.accent + '20' }]}>
+              <IconSymbol 
+                ios_icon_name="person.fill" 
+                android_material_icon_name="person" 
+                size={40} 
+                color={colors.accent} 
+              />
+            </View>
+            <Text style={styles.explanationTitle}>Nós te guiamos e ajudamos</Text>
+            <Text style={styles.explanationText}>
+              Prefere fazer você mesmo? Sem problema! Nós te guiamos passo a passo 
+              e fornecemos todas as ferramentas necessárias. Você faz sozinho com 
+              nossa ajuda e ainda ganha 20% de desconto!
+            </Text>
+          </View>
 
           {/* Como Funciona Section */}
           <View style={styles.howItWorksCard}>
@@ -351,6 +317,20 @@ export default function HomeScreen() {
               </View>
             </View>
           </View>
+
+          {/* Todos os Pedidos Button */}
+          <TouchableOpacity 
+            style={styles.ordersButton}
+            onPress={handleOrdersPress}
+          >
+            <IconSymbol 
+              ios_icon_name="list.bullet" 
+              android_material_icon_name="list" 
+              size={24} 
+              color="#FFFFFF" 
+            />
+            <Text style={styles.ordersButtonText}>Ver Todos os Pedidos</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -367,26 +347,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   appName: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
     color: colors.secondary,
     textAlign: 'center',
-    marginBottom: 8,
-    letterSpacing: 0.5,
-  },
-  appSubtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
     marginBottom: 20,
-    paddingHorizontal: 20,
-    lineHeight: 20,
+    letterSpacing: 1,
+  },
+  loginButton: {
+    backgroundColor: colors.secondary,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+    marginBottom: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  loginButtonText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   welcomeCard: {
     backgroundColor: colors.secondary,
     borderRadius: 20,
     padding: 24,
-    marginBottom: 16,
+    marginBottom: 24,
     position: 'relative',
   },
   welcomeGreeting: {
@@ -403,30 +393,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 20,
     right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  loginButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    marginBottom: 24,
-    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
-    shadowRadius: 8,
+    shadowRadius: 4,
     elevation: 3,
-  },
-  loginButtonText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -439,11 +416,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: colors.text,
-  },
-  viewAllText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary,
   },
   storesContainer: {
     gap: 12,
@@ -477,17 +449,22 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   mapButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.secondary,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 14,
     gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   mapButtonText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
   quickServicesGrid: {
@@ -499,7 +476,7 @@ const styles = StyleSheet.create({
   quickServiceCard: {
     width: '31%',
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     alignItems: 'center',
     shadowColor: '#000',
@@ -509,87 +486,71 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   quickServiceIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: colors.secondary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   quickServiceName: {
     fontSize: 12,
     fontWeight: '600',
     color: colors.text,
     textAlign: 'center',
+    lineHeight: 16,
   },
-  serviceListCard: {
+  explanationCard: {
     backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 16,
     alignItems: 'center',
-    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  serviceListIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  explanationIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: colors.secondary + '20',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginBottom: 16,
   },
-  serviceListInfo: {
-    flex: 1,
-  },
-  serviceListName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  serviceListPrice: {
-    fontSize: 15,
+  explanationTitle: {
+    fontSize: 18,
     fontWeight: '700',
-    color: colors.secondary,
+    color: colors.text,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  explanationText: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
   },
   discountBadge: {
     backgroundColor: colors.accent,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
   },
   discountBadgeText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
-  },
-  priceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  originalPrice: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    textDecorationLine: 'line-through',
-  },
-  discountedPrice: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.accent,
   },
   howItWorksCard: {
     backgroundColor: colors.card,
     borderRadius: 20,
     padding: 24,
-    marginTop: 24,
+    marginTop: 8,
     marginBottom: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -636,5 +597,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     lineHeight: 20,
+  },
+  ordersButton: {
+    backgroundColor: colors.secondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+    marginTop: 8,
+    marginBottom: 24,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  ordersButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });
