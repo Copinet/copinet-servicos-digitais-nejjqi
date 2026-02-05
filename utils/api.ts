@@ -97,6 +97,19 @@ export const apiCall = async <T = any>(
 
     if (!response.ok) {
       console.error("[API] Error response:", response.status, data);
+      
+      // Special handling for specific error codes
+      if (response.status === 413) {
+        throw new Error('Servidor recusou o tamanho do arquivo. O limite atual é 50MB.');
+      }
+      
+      if (response.status === 404) {
+        if (data.code === 'PARTNER_NOT_FOUND') {
+          throw new Error('Erro ao conectar com a loja. Parceiro não encontrado.');
+        }
+        throw new Error(data.error || 'Erro ao conectar com a loja.');
+      }
+      
       throw new Error(data.error || `API error: ${response.status}`);
     }
 
@@ -376,14 +389,14 @@ export const uploadFile = async (
         if (response.status === 413 || text.toLowerCase().includes('payload') || text.toLowerCase().includes('too large')) {
           return {
             success: false,
-            error: 'Arquivo muito pesado. O limite atual é 50MB. Tente reduzir o tamanho ou enviar em partes.',
+            error: 'Servidor recusou o tamanho do arquivo. O limite atual é 50MB.',
             code: 'PAYLOAD_TOO_LARGE',
           };
         }
         
         return {
           success: false,
-          error: 'Arquivo muito pesado. O limite atual é 50MB. Tente reduzir o tamanho ou enviar em partes.',
+          error: 'Resposta inválida do servidor. Tente novamente.',
           code: 'INVALID_RESPONSE',
         };
       }
@@ -395,7 +408,7 @@ export const uploadFile = async (
         if (response.status === 413) {
           return {
             success: false,
-            error: 'Arquivo muito pesado. O limite atual é 50MB. Tente reduzir o tamanho ou enviar em partes.',
+            error: 'Servidor recusou o tamanho do arquivo. O limite atual é 50MB.',
             code: 'PAYLOAD_TOO_LARGE',
           };
         }
@@ -568,7 +581,7 @@ export const uploadMultipleFiles = async (
 export const getErrorMessage = (code?: string, defaultMessage?: string): string => {
   const errorMessages: Record<string, string> = {
     'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 50MB por arquivo.',
-    'PAYLOAD_TOO_LARGE': 'Arquivo muito pesado. O limite atual é 50MB. Tente reduzir o tamanho ou enviar em partes.',
+    'PAYLOAD_TOO_LARGE': 'Servidor recusou o tamanho do arquivo. O limite atual é 50MB.',
     'TOO_MANY_PAGES': 'PDF com muitas páginas. O máximo é 1500 páginas.',
     'INVALID_FORMAT': 'Formato de arquivo inválido. Use PDF, Word, ou imagens (JPG, PNG).',
     'PROCESSING_FAILED': 'Não foi possível processar o arquivo. Tente novamente.',
@@ -583,7 +596,8 @@ export const getErrorMessage = (code?: string, defaultMessage?: string): string 
     'MAX_RETRIES_EXCEEDED': 'Upload falhou após múltiplas tentativas. Verifique sua conexão.',
     'UPLOAD_TIMEOUT': 'Upload excedeu o tempo limite de 60 segundos. O arquivo pode ser muito grande. Tente com um arquivo menor ou divida em partes.',
     'TOO_MANY_FILES': 'Máximo de 10 arquivos por vez.',
-    'INVALID_RESPONSE': 'Arquivo muito pesado. O limite atual é 50MB. Tente reduzir o tamanho ou enviar em partes.',
+    'INVALID_RESPONSE': 'Resposta inválida do servidor. Tente novamente.',
+    'PARTNER_NOT_FOUND': 'Erro ao conectar com a loja. Parceiro não encontrado.',
   };
 
   return errorMessages[code || ''] || defaultMessage || 'Ocorreu um erro. Tente novamente.';

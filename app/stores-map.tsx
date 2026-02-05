@@ -154,7 +154,7 @@ export default function StoresMapScreen() {
     setSelectedStore(store);
 
     try {
-      const { authenticatedPost } = await import('@/utils/api');
+      const { authenticatedPost, getErrorMessage } = await import('@/utils/api');
       
       const response = await authenticatedPost(`/api/print-jobs/${printJobId}/assign-partner`, {
         partnerId: store.id,
@@ -172,12 +172,27 @@ export default function StoresMapScreen() {
           totalPrice,
         },
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('StoresMapScreen: Error assigning partner:', error);
+      
+      let errorMessage = 'Não foi possível enviar o pedido para o parceiro. Tente novamente.';
+      
+      if (error.message) {
+        const errorText = error.message.toLowerCase();
+        
+        if (errorText.includes('404') || errorText.includes('not found') || errorText.includes('partner_not_found')) {
+          errorMessage = 'Erro ao conectar com a loja. Parceiro não encontrado.';
+        } else if (errorText.includes('413') || errorText.includes('payload') || errorText.includes('too large')) {
+          errorMessage = 'Servidor recusou o tamanho do arquivo.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       setErrorModal({
         visible: true,
         title: 'Erro',
-        message: 'Não foi possível enviar o pedido para o parceiro. Tente novamente.',
+        message: errorMessage,
       });
       setSelectedStore(null);
     }
