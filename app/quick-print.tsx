@@ -156,7 +156,17 @@ export default function QuickPrintScreen() {
     setUploadStatus('Preparando arquivos...');
     
     try {
-      const { uploadMultipleFiles, getErrorMessage } = await import('@/utils/api');
+      const { uploadMultipleFilesToSupabase, isSupabaseConfigured, getErrorMessage } = await import('@/utils/api');
+      
+      // Check if Supabase is configured
+      if (!isSupabaseConfigured()) {
+        showError(
+          'Configuração Necessária',
+          'O Supabase não está configurado. Por favor, configure supabaseUrl e supabaseAnonKey no app.json para fazer upload de arquivos grandes.'
+        );
+        setUploading(false);
+        return;
+      }
       
       const filesToUpload = assets.map(asset => ({
         uri: asset.uri,
@@ -164,10 +174,11 @@ export default function QuickPrintScreen() {
         type: asset.mimeType || 'application/octet-stream',
       }));
 
-      console.log('QuickPrintScreen: Uploading files:', filesToUpload.length);
+      console.log('QuickPrintScreen: Uploading files directly to Supabase:', filesToUpload.length);
       
-      const result = await uploadMultipleFiles(
+      const result = await uploadMultipleFilesToSupabase(
         filesToUpload,
+        'documents',
         (progress) => {
           setUploadProgress(progress);
           console.log('QuickPrintScreen: Overall progress:', progress + '%');
@@ -175,9 +186,9 @@ export default function QuickPrintScreen() {
         (fileIndex, fileName, status) => {
           // Update status message based on file progress
           if (status === 'uploading') {
-            setUploadStatus(`Enviando ${fileName}...`);
+            setUploadStatus(`Enviando ${fileName} diretamente para o Supabase...`);
           } else if (status === 'processing') {
-            setUploadStatus(`Processando ${fileName}... (contando páginas no servidor)`);
+            setUploadStatus(`Processando ${fileName}...`);
           } else if (status === 'complete') {
             setUploadStatus(`${fileName} concluído!`);
           } else if (status === 'failed') {
@@ -186,7 +197,7 @@ export default function QuickPrintScreen() {
         }
       );
 
-      console.log('QuickPrintScreen: Upload complete:', result);
+      console.log('QuickPrintScreen: Supabase upload complete:', result);
 
       // Add successfully uploaded files
       if (result.uploads.length > 0) {
@@ -195,7 +206,7 @@ export default function QuickPrintScreen() {
           name: upload.filename,
           size: upload.size,
           mimeType: upload.mimeType,
-          pageCount: upload.pageCount, // Server-counted pages
+          pageCount: upload.pageCount,
           url: upload.url,
           colorMode: 'bw',
           copies: 1,
@@ -203,7 +214,7 @@ export default function QuickPrintScreen() {
         }));
 
         setFiles(prev => [...prev, ...newFiles]);
-        setUploadStatus(`${result.uploads.length} arquivo(s) adicionado(s) com sucesso!`);
+        setUploadStatus(`${result.uploads.length} arquivo(s) enviado(s) com sucesso para o Supabase!`);
       }
 
       // Show errors for failed uploads
@@ -220,7 +231,7 @@ export default function QuickPrintScreen() {
 
       // Show success message if all uploaded
       if (result.uploads.length > 0 && result.failed.length === 0) {
-        console.log('QuickPrintScreen: All files uploaded successfully');
+        console.log('QuickPrintScreen: All files uploaded successfully to Supabase');
       }
     } catch (error) {
       console.error('QuickPrintScreen: Error uploading files:', error);
@@ -277,7 +288,7 @@ export default function QuickPrintScreen() {
         },
       };
 
-      console.log('QuickPrintScreen: Creating print job:', printJob);
+      console.log('QuickPrintScreen: Creating print job with Supabase URLs:', printJob);
       const response = await authenticatedPost('/api/print-jobs', printJob);
       console.log('QuickPrintScreen: Print job created:', response);
 
@@ -326,6 +337,9 @@ export default function QuickPrintScreen() {
             <Text style={styles.headerSubtitle}>
               Faça upload de documentos PDF, Word ou imagens e escolha as opções de impressão
             </Text>
+            <Text style={styles.headerNote}>
+              ✨ Upload direto para o Supabase - suporta arquivos até 50MB
+            </Text>
           </View>
 
           <View style={styles.uploadSection}>
@@ -373,7 +387,7 @@ export default function QuickPrintScreen() {
                   </View>
                 )}
                 <Text style={styles.uploadingSubtext}>
-                  {uploadProgress}% - Aguarde, o servidor está processando os arquivos
+                  {uploadProgress}% - Upload direto para o Supabase Storage
                 </Text>
               </View>
             )}
@@ -577,6 +591,13 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  headerNote: {
+    fontSize: 13,
+    color: colors.secondary,
+    textAlign: 'center',
+    marginTop: 8,
+    fontWeight: '600',
   },
   uploadSection: {
     marginBottom: 24,

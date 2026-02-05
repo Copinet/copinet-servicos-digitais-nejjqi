@@ -1,3 +1,4 @@
+
 {
   "expo": {
     "name": "Copinet",
@@ -42,7 +43,9 @@
     },
     "extra": {
       "router": {},
-      "backendUrl": "https://ncf8wts23wyaw99mnk9bdzak5kn9hh3k.app.specular.dev"
+      "backendUrl": "https://ncf8wts23wyaw99mnk9bdzak5kn9hh3k.app.specular.dev",
+      "supabaseUrl": "YOUR_SUPABASE_PROJECT_URL",
+      "supabaseAnonKey": "YOUR_SUPABASE_ANON_KEY"
     }
   }
 }

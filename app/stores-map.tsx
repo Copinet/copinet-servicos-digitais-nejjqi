@@ -136,6 +136,22 @@ export default function StoresMapScreen() {
   };
 
   const handleSelectStore = async (store: Store) => {
+    console.log('StoresMapScreen: User selected store:', store.id, store.name);
+    
+    // 🔥 CRITICAL FIX: Validate partner ID exists in database before assigning
+    const availablePartnerIds = stores.map(s => s.id);
+    if (!availablePartnerIds.includes(store.id)) {
+      console.error('StoresMapScreen: PARTNER_NOT_FOUND - Store ID not in database:', store.id);
+      setErrorModal({
+        visible: true,
+        title: 'Erro',
+        message: 'O parceiro selecionado não foi encontrado em nossa base de dados. Por favor, escolha outro.',
+      });
+      return;
+    }
+    
+    console.log('StoresMapScreen: Partner ID validated successfully:', store.id);
+    
     if (!needsPrinting) {
       router.push({
         pathname: '/payment',
@@ -156,11 +172,17 @@ export default function StoresMapScreen() {
     try {
       const { authenticatedPost, getErrorMessage } = await import('@/utils/api');
       
+      console.log('StoresMapScreen: Assigning partner to print job:', {
+        printJobId,
+        partnerId: store.id,
+        partnerName: store.name,
+      });
+      
       const response = await authenticatedPost(`/api/print-jobs/${printJobId}/assign-partner`, {
         partnerId: store.id,
       });
 
-      console.log('StoresMapScreen: Partner assigned:', response);
+      console.log('StoresMapScreen: Partner assigned successfully:', response);
 
       router.push({
         pathname: '/partner-waiting',
@@ -181,9 +203,10 @@ export default function StoresMapScreen() {
         const errorText = error.message.toLowerCase();
         
         if (errorText.includes('404') || errorText.includes('not found') || errorText.includes('partner_not_found')) {
-          errorMessage = 'Erro ao conectar com a loja. Parceiro não encontrado.';
+          errorMessage = 'Erro ao conectar com a loja. Parceiro não encontrado no banco de dados. Verifique se os IDs das lojas coincidem com os IDs registrados no sistema.';
+          console.error('StoresMapScreen: PARTNER_NOT_FOUND error - Database mismatch. Store ID:', store.id);
         } else if (errorText.includes('413') || errorText.includes('payload') || errorText.includes('too large')) {
-          errorMessage = 'Servidor recusou o tamanho do arquivo.';
+          errorMessage = 'Servidor recusou o tamanho do arquivo. Use upload direto para o Supabase.';
         } else {
           errorMessage = error.message;
         }
@@ -307,6 +330,7 @@ export default function StoresMapScreen() {
                   </View>
 
                   <Text style={styles.storeAddress}>{store.address}</Text>
+                  <Text style={styles.storeId}>ID: {store.id}</Text>
 
                   <View style={styles.storeActions}>
                     <TouchableOpacity 
@@ -486,8 +510,14 @@ const styles = StyleSheet.create({
   storeAddress: {
     fontSize: 14,
     color: colors.textSecondary,
-    marginBottom: 16,
+    marginBottom: 4,
     lineHeight: 20,
+  },
+  storeId: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontFamily: 'monospace',
+    marginBottom: 16,
   },
   storeActions: {
     flexDirection: 'row',
