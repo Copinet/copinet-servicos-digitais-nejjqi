@@ -27,10 +27,20 @@ export const orders = pgTable('orders', {
   userId: text('user_id').notNull(), // from auth
   serviceId: uuid('service_id').notNull(), // references services
   status: text('status').notNull(), // "pending", "processing", "ready", "completed", "cancelled"
+  flow: text('flow').notNull(), // "fazemos", "sozinho"
+  selectedOption: text('selected_option').notNull(), // "pdf", "pdf_impressao"
+  formData: jsonb('form_data'), // user collected data
   customerData: jsonb('customer_data'), // stores extracted data (name, cpf, rg, birthDate, etc.)
   documentImages: jsonb('document_images'), // array of image URLs
   notes: text('notes'),
   totalPrice: decimal('total_price', { precision: 10, scale: 2 }).notNull(),
+  pdfUrl: text('pdf_url'), // URL of generated PDF
+  pdfAvailableUntil: timestamp('pdf_available_until', { withTimezone: true }), // PDF available for 3 days
+  qrCode: text('qr_code'), // QR code for print pickup
+  partnerId: text('partner_id'), // foreign key to partners if print selected
+  printStatus: text('print_status'), // "pending", "accepted", "rejected", "completed"
+  printAcceptedAt: timestamp('print_accepted_at', { withTimezone: true }), // when partner accepted the order
+  estimatedReadyTime: timestamp('estimated_ready_time', { withTimezone: true }), // when print will be ready
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

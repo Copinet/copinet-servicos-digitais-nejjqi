@@ -20,7 +20,7 @@ export async function seedInitialServices(app: App) {
         price: '0.50',
         estimatedTime: '1 hora',
         icon: 'printer',
-        type: 'fazemos_pra_voce',
+        type: 'both',
       },
       {
         name: 'Digitalização de Documento em PDF',
@@ -29,7 +29,7 @@ export async function seedInitialServices(app: App) {
         price: '3.00',
         estimatedTime: '1-2 dias úteis',
         icon: 'scan',
-        type: 'fazemos_pra_voce',
+        type: 'faca_sozinho',
       },
       {
         name: 'Foto 3x4',
@@ -38,7 +38,7 @@ export async function seedInitialServices(app: App) {
         price: '15.00',
         estimatedTime: '30 minutos',
         icon: 'camera',
-        type: 'fazemos_pra_voce',
+        type: 'faca_sozinho',
       },
       {
         name: 'Currículo',
@@ -48,6 +48,24 @@ export async function seedInitialServices(app: App) {
         estimatedTime: '3-5 dias úteis',
         icon: 'file-text',
         type: 'both',
+      },
+      {
+        name: 'CPF',
+        description: 'Serviços relacionados a solicitação e atualização de CPF',
+        category: 'documents',
+        price: '50.00',
+        estimatedTime: '5-7 dias úteis',
+        icon: 'id-card',
+        type: 'fazemos_pra_voce',
+      },
+      {
+        name: 'Certidões',
+        description: 'Solicitação de certidões civis e públicas',
+        category: 'documents',
+        price: '40.00',
+        estimatedTime: '3-5 dias úteis',
+        icon: 'document-check',
+        type: 'fazemos_pra_voce',
       },
 
       // Document Services
