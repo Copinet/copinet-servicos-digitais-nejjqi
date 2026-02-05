@@ -274,6 +274,7 @@ const sanitizeFilename = (filename: string): string => {
 /**
  * Upload a single file with progress tracking and retry logic
  * Server-side page counting - no local processing to avoid freezing
+ * TIMEOUT: 5 minutes (300 seconds) for large files (200+ pages, up to 200MB)
  * 
  * @param file - File object with uri, name, and type
  * @param onProgress - Optional callback for upload progress (0-100)
@@ -337,29 +338,54 @@ export const uploadFile = async (
         onProgress(10);
       }
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          // Don't set Content-Type - let the browser/RN set it with boundary for multipart/form-data
-        },
-        body: formData,
-      });
+      // Create AbortController for timeout (5 minutes for large files - matches backend)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes (300 seconds)
+
+      let response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            // Don't set Content-Type - let the browser/RN set it with boundary for multipart/form-data
+          },
+          body: formData,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       // Report upload complete, waiting for processing
       if (onProgress) {
         onProgress(60);
       }
 
-      // Parse response
+      // Parse response - handle non-JSON responses (like HTML error pages)
       let data;
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         data = await response.json();
       } else {
+        // Non-JSON response (likely HTML error page from server)
         const text = await response.text();
         console.error('[API] Non-JSON response:', text.substring(0, 200));
-        throw new Error('Resposta inválida do servidor');
+        
+        // Check if it's a Payload Too Large error
+        if (response.status === 413 || text.toLowerCase().includes('payload') || text.toLowerCase().includes('too large')) {
+          return {
+            success: false,
+            error: 'O arquivo é muito pesado para o servidor atual. Tente reduzir o tamanho ou enviar em partes.',
+            code: 'PAYLOAD_TOO_LARGE',
+          };
+        }
+        
+        return {
+          success: false,
+          error: 'O arquivo é muito pesado para o servidor atual. Tente reduzir o tamanho ou enviar em partes.',
+          code: 'INVALID_RESPONSE',
+        };
       }
 
       if (!response.ok) {
@@ -369,7 +395,7 @@ export const uploadFile = async (
         if (response.status === 413) {
           return {
             success: false,
-            error: getErrorMessage('PAYLOAD_TOO_LARGE'),
+            error: 'O arquivo é muito pesado para o servidor atual. Tente reduzir o tamanho ou enviar em partes.',
             code: 'PAYLOAD_TOO_LARGE',
           };
         }
@@ -405,8 +431,17 @@ export const uploadFile = async (
         success: true,
         ...data,
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[API] Upload error (attempt ${attempt}/${retries}):`, error);
+      
+      // Check if it's a timeout error
+      if (error.name === 'AbortError') {
+        return {
+          success: false,
+          error: 'Upload excedeu o tempo limite de 5 minutos. O arquivo pode ser muito grande. Tente com um arquivo menor ou divida em partes.',
+          code: 'UPLOAD_TIMEOUT',
+        };
+      }
       
       // If this was the last attempt, return error
       if (attempt === retries) {
@@ -433,7 +468,8 @@ export const uploadFile = async (
 };
 
 /**
- * Upload multiple files in parallel with batch processing
+ * Upload multiple files ONE BY ONE (sequentially)
+ * This prevents "Payload Too Large" errors by sending small individual requests
  * Server handles page counting - keeps loading state active until all files are processed
  * 
  * @param files - Array of file objects with uri, name, and type
@@ -463,77 +499,66 @@ export const uploadMultipleFiles = async (
     throw new Error("Backend URL not configured. Please rebuild the app.");
   }
 
-  console.log('[API] Uploading multiple files:', files.length);
+  console.log('[API] Uploading multiple files ONE BY ONE:', files.length);
 
   const uploads: any[] = [];
   const failed: any[] = [];
-  let completed = 0;
 
-  // Upload files in parallel (max 2 at a time for large files to avoid timeouts)
-  const batchSize = 2;
-  for (let i = 0; i < files.length; i += batchSize) {
-    const batch = files.slice(i, i + batchSize);
+  // Upload files ONE BY ONE (sequentially) to avoid payload too large errors
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
     
-    const results = await Promise.all(
-      batch.map((file, batchIndex) => {
-        const fileIndex = i + batchIndex;
-        
-        // Notify that file upload is starting
-        if (onFileProgress) {
-          onFileProgress(fileIndex, file.name, 'uploading');
-        }
-        
-        return uploadFile(file, (fileProgress) => {
-          // Individual file progress
-          if (fileProgress >= 60 && onFileProgress) {
-            onFileProgress(fileIndex, file.name, 'processing');
-          }
-        });
-      })
-    );
-
-    results.forEach((result, index) => {
-      const file = batch[index];
-      const fileIndex = i + index;
-      
-      if (result.success && result.url) {
-        uploads.push({
-          url: result.url,
-          filename: result.filename || file.name,
-          size: result.size || 0,
-          mimeType: result.mimeType || file.type,
-          pageCount: result.pageCount || 1,
-        });
-        
-        if (onFileProgress) {
-          onFileProgress(fileIndex, file.name, 'complete');
-        }
-        
-        console.log(`[API] File ${fileIndex + 1}/${files.length} uploaded successfully:`, file.name, 'Pages:', result.pageCount);
-      } else {
-        failed.push({
-          filename: file.name,
-          error: result.error || 'Upload falhou',
-          code: result.code,
-        });
-        
-        if (onFileProgress) {
-          onFileProgress(fileIndex, file.name, 'failed');
-        }
-        
-        console.error(`[API] File ${fileIndex + 1}/${files.length} failed:`, file.name, result.error);
-      }
-      
-      completed++;
-      if (onProgress) {
-        const overallProgress = Math.round((completed / files.length) * 100);
-        onProgress(overallProgress);
-        console.log(`[API] Overall progress: ${overallProgress}% (${completed}/${files.length})`);
+    console.log(`[API] Uploading file ${i + 1}/${files.length}:`, file.name);
+    
+    // Notify that file upload is starting
+    if (onFileProgress) {
+      onFileProgress(i, file.name, 'uploading');
+    }
+    
+    const result = await uploadFile(file, (fileProgress) => {
+      // Individual file progress
+      if (fileProgress >= 60 && onFileProgress) {
+        onFileProgress(i, file.name, 'processing');
       }
     });
+    
+    if (result.success && result.url) {
+      uploads.push({
+        url: result.url,
+        filename: result.filename || file.name,
+        size: result.size || 0,
+        mimeType: result.mimeType || file.type,
+        pageCount: result.pageCount || 1,
+      });
+      
+      if (onFileProgress) {
+        onFileProgress(i, file.name, 'complete');
+      }
+      
+      console.log(`[API] File ${i + 1}/${files.length} uploaded successfully:`, file.name, 'Pages:', result.pageCount);
+    } else {
+      failed.push({
+        filename: file.name,
+        error: result.error || 'Upload falhou',
+        code: result.code,
+      });
+      
+      if (onFileProgress) {
+        onFileProgress(i, file.name, 'failed');
+      }
+      
+      console.error(`[API] File ${i + 1}/${files.length} failed:`, file.name, result.error);
+    }
+    
+    // Update overall progress
+    if (onProgress) {
+      const overallProgress = Math.round(((i + 1) / files.length) * 100);
+      onProgress(overallProgress);
+      console.log(`[API] Overall progress: ${overallProgress}% (${i + 1}/${files.length})`);
+    }
   }
 
-  console.log('[API] Batch upload complete:', { uploads: uploads.length, failed: failed.length });
+  console.log('[API] Sequential upload complete:', { uploads: uploads.length, failed: failed.length });
   return { uploads, failed };
 };
 
@@ -542,12 +567,12 @@ export const uploadMultipleFiles = async (
  */
 export const getErrorMessage = (code?: string, defaultMessage?: string): string => {
   const errorMessages: Record<string, string> = {
-    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 200MB.',
-    'PAYLOAD_TOO_LARGE': 'O arquivo é muito grande para ser enviado. Por favor, reduza o tamanho ou envie em partes menores.',
+    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 200MB por arquivo.',
+    'PAYLOAD_TOO_LARGE': 'O arquivo é muito pesado para o servidor atual. Tente reduzir o tamanho ou enviar em partes.',
     'TOO_MANY_PAGES': 'PDF com muitas páginas. O máximo é 1500 páginas.',
     'INVALID_FORMAT': 'Formato de arquivo inválido. Use PDF, Word, ou imagens (JPG, PNG).',
     'PROCESSING_FAILED': 'Não foi possível processar o arquivo. Tente novamente.',
-    'TIMEOUT': 'O processamento demorou muito (máx. 5 minutos). Tente com um arquivo menor.',
+    'TIMEOUT': 'O processamento demorou muito (máx. 5 minutos). Tente com um arquivo menor ou divida em partes.',
     'NETWORK_ERROR': 'Erro de conexão. Verifique sua internet e tente novamente.',
     'UPLOAD_FAILED': 'Falha no upload. Tente novamente.',
     'UNAUTHORIZED': 'Você precisa fazer login para continuar.',
@@ -556,8 +581,9 @@ export const getErrorMessage = (code?: string, defaultMessage?: string): string 
     'STORAGE_ERROR': 'Erro ao salvar arquivo. Tente novamente.',
     'NO_FILE': 'Nenhum arquivo foi selecionado.',
     'MAX_RETRIES_EXCEEDED': 'Upload falhou após múltiplas tentativas. Verifique sua conexão.',
-    'UPLOAD_TIMEOUT': 'Upload excedeu tempo limite de 5 minutos. Tente com um arquivo menor.',
+    'UPLOAD_TIMEOUT': 'Upload excedeu o tempo limite de 5 minutos. O arquivo pode ser muito grande. Tente com um arquivo menor ou divida em partes.',
     'TOO_MANY_FILES': 'Máximo de 10 arquivos por vez.',
+    'INVALID_RESPONSE': 'O arquivo é muito pesado para o servidor atual. Tente reduzir o tamanho ou enviar em partes.',
   };
 
   return errorMessages[code || ''] || defaultMessage || 'Ocorreu um erro. Tente novamente.';

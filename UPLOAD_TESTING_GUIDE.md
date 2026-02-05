@@ -1,6 +1,20 @@
 
 # 📤 Upload Testing Guide - Copinet App
 
+## 🎉 Latest Updates (Just Applied)
+
+### Backend Changes (Deployed)
+- ✅ **Payload limit increased**: 150MB → **200MB** per file
+- ✅ **Timeout increased**: 60 seconds → **5 minutes (300 seconds)** per file
+- ✅ **Better error handling**: User-friendly Portuguese messages for "Payload Too Large"
+- ✅ **Retry logic**: 3 attempts with exponential backoff (1s, 2s, 4s)
+- ✅ **Sequential upload**: Files upload one by one to prevent payload errors
+
+### Frontend Changes (Just Applied)
+- ✅ **Timeout updated**: Now matches backend (5 minutes)
+- ✅ **Error messages updated**: Reflect new 200MB limit and 5-minute timeout
+- ✅ **AI processing timeout**: Increased to 5 minutes for large files
+
 ## ✅ Backend Integration Complete
 
 The backend has been successfully updated with the following critical fixes:
@@ -26,12 +40,17 @@ The backend has been successfully updated with the following critical fixes:
 4. **Error Handling**
    - ✅ User-friendly error messages in Portuguese
    - ✅ Specific error codes for different failure scenarios
-   - ✅ Timeout protection (5 minutes max)
+   - ✅ Timeout protection (**5 minutes** max - increased from 60 seconds)
 
 5. **Loading States**
    - ✅ Progress tracking during upload (0-100%)
    - ✅ Status messages for each file
    - ✅ Loading state remains active until server confirms completion
+
+6. **Increased Limits**
+   - ✅ **Max file size**: 200MB (increased from 150MB)
+   - ✅ **Upload timeout**: 5 minutes (increased from 60 seconds)
+   - ✅ Supports large PDFs with 200+ pages
 
 ---
 
@@ -104,9 +123,9 @@ The backend has been successfully updated with the following critical fixes:
 2. Sign in again
 3. Try uploading again
 
-### Issue: "Arquivo muito grande (XXX MB). Máximo: 150MB"
+### Issue: "Arquivo muito grande (XXX MB). Máximo: 200MB"
 
-**Cause**: File exceeds 150MB limit
+**Cause**: File exceeds 200MB limit
 
 **Solution**:
 1. Use a smaller file
@@ -194,15 +213,16 @@ If you see errors:
 - **Expected**: Upload completes in < 10 seconds
 - **Page count**: Accurate
 
-### Scenario 2: Large PDF (100-500 pages)
-- **Expected**: Upload completes in 30-60 seconds
+### Scenario 2: Large PDF (100-500 pages, 50-150MB)
+- **Expected**: Upload completes in 1-3 minutes
 - **Page count**: Accurate
 - **Status**: "Processando..." visible for longer
 
-### Scenario 3: Very Large PDF (500+ pages)
-- **Expected**: Upload completes in 1-3 minutes
+### Scenario 3: Very Large PDF (500+ pages, 150-200MB)
+- **Expected**: Upload completes in 2-5 minutes
 - **Page count**: Accurate or capped at 1500
 - **Status**: "Processando..." visible for extended time
+- **Note**: New 5-minute timeout allows these large files to complete
 
 ### Scenario 4: Multiple Files (5-10 files)
 - **Expected**: Files upload in parallel (2 at a time)
@@ -228,9 +248,10 @@ Name: Test User
 ### Test Files to Use
 1. **Small PDF**: 1-5 pages, < 1MB
 2. **Medium PDF**: 10-50 pages, 5-20MB
-3. **Large PDF**: 100-500 pages, 50-100MB
-4. **Images**: JPG/PNG, various sizes
-5. **Word Document**: .docx file
+3. **Large PDF**: 100-500 pages, 50-150MB
+4. **Very Large PDF**: 500+ pages, 150-200MB (now supported!)
+5. **Images**: JPG/PNG, various sizes
+6. **Word Document**: .docx file
 
 ---
 

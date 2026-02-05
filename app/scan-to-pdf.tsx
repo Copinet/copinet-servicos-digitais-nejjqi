@@ -154,9 +154,9 @@ export default function ScanToPDFScreen() {
       console.log('ScanToPDFScreen: Processing with AI...');
       
       try {
-        // Create a timeout promise (30 seconds)
+        // Create a timeout promise (5 minutes for AI processing)
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('TIMEOUT')), 30000);
+          setTimeout(() => reject(new Error('TIMEOUT')), 300000);
         });
 
         const processPromise = authenticatedPost('/api/ai/enhance-document', {
