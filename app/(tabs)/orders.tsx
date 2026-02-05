@@ -32,10 +32,15 @@ export default function OrdersScreen() {
     try {
       console.log('[OrdersScreen] Fetching orders from API...');
       const { authenticatedGet } = await import('@/utils/api');
-      const data = await authenticatedGet('/api/orders');
       
-      // Transform API response to match UI expectations
-      const transformedOrders = data.map((order: any) => ({
+      // Fetch both regular orders and print jobs
+      const [ordersData, printJobsData] = await Promise.all([
+        authenticatedGet('/api/orders').catch(() => []),
+        authenticatedGet('/api/print-jobs').catch(() => []),
+      ]);
+      
+      // Transform regular orders
+      const transformedOrders = ordersData.map((order: any) => ({
         id: order.id,
         serviceId: order.serviceId,
         serviceName: order.serviceName,
@@ -44,10 +49,31 @@ export default function OrdersScreen() {
         totalPrice: parseFloat(order.totalPrice),
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
+        type: 'order',
       }));
       
-      setOrders(transformedOrders);
-      console.log('[OrdersScreen] Orders loaded successfully:', transformedOrders.length);
+      // Transform print jobs
+      const transformedPrintJobs = printJobsData.map((job: any) => ({
+        id: job.id,
+        serviceId: job.serviceType,
+        serviceName: getServiceNameFromType(job.serviceType),
+        status: job.status,
+        customerData: null,
+        totalPrice: parseFloat(job.totalPrice),
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+        type: 'print_job',
+        files: job.files,
+        options: job.options,
+      }));
+      
+      // Combine and sort by date
+      const allOrders = [...transformedOrders, ...transformedPrintJobs].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      
+      setOrders(allOrders);
+      console.log('[OrdersScreen] Orders loaded successfully:', allOrders.length);
     } catch (error) {
       console.error('[OrdersScreen] Error loading orders:', error);
       // Fallback to empty array on error
@@ -57,12 +83,30 @@ export default function OrdersScreen() {
     }
   };
 
+  const getServiceNameFromType = (type: string) => {
+    const names: Record<string, string> = {
+      quick_print: 'Impressão Rápida',
+      photo_print: 'Impressão de Fotos',
+      photo_3x4: 'Foto 3x4',
+      scan_to_pdf: 'Escanear para PDF',
+    };
+    return names[type] || type;
+  };
+
   const handleOrderPress = async (orderId: string) => {
     console.log('[OrdersScreen] Order pressed:', orderId);
     try {
       const { authenticatedGet } = await import('@/utils/api');
-      const orderDetail = await authenticatedGet(`/api/orders/${orderId}`);
-      setSelectedOrder(orderDetail);
+      const order = orders.find(o => o.id === orderId);
+      
+      let orderDetail;
+      if (order && order.type === 'print_job') {
+        orderDetail = await authenticatedGet(`/api/print-jobs/${orderId}`);
+      } else {
+        orderDetail = await authenticatedGet(`/api/orders/${orderId}`);
+      }
+      
+      setSelectedOrder({ ...orderDetail, type: order?.type });
       setShowDetailModal(true);
     } catch (error: any) {
       console.error('[OrdersScreen] Error loading order detail:', error);
@@ -78,7 +122,12 @@ export default function OrdersScreen() {
       setDeleting(true);
       console.log('[OrdersScreen] Deleting order:', selectedOrder.id);
       const { authenticatedDelete } = await import('@/utils/api');
-      await authenticatedDelete(`/api/orders/${selectedOrder.id}`);
+      
+      if (selectedOrder.type === 'print_job') {
+        await authenticatedDelete(`/api/print-jobs/${selectedOrder.id}`);
+      } else {
+        await authenticatedDelete(`/api/orders/${selectedOrder.id}`);
+      }
       
       // Remove from local state
       setOrders(orders.filter(o => o.id !== selectedOrder.id));

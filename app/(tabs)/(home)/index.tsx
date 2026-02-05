@@ -40,12 +40,26 @@ export default function HomeScreen() {
     }
   };
 
-  const handleServicePress = (service: any) => {
-    console.log('[HomeScreen] Service pressed:', service.name);
-    router.push({
-      pathname: '/service-detail',
-      params: { serviceId: service.id }
-    });
+  const handleServicePress = (serviceName: string) => {
+    console.log('[HomeScreen] Service pressed:', serviceName);
+    
+    if (serviceName === 'Impressão Rápida') {
+      router.push('/quick-print');
+    } else if (serviceName === 'Impressão de Fotos') {
+      router.push('/photo-print');
+    } else if (serviceName === 'Foto 3x4') {
+      router.push('/photo-3x4');
+    } else if (serviceName.includes('Escanear') || serviceName.includes('Digitalizar')) {
+      router.push('/scan-to-pdf');
+    } else {
+      const service = services.find(s => s.name.includes(serviceName.split(' ')[0]));
+      if (service) {
+        router.push({
+          pathname: '/service-detail',
+          params: { serviceId: service.id }
+        });
+      }
+    }
   };
 
   const handleOrdersPress = () => {
@@ -76,20 +90,14 @@ export default function HomeScreen() {
     );
   }
 
-  // Define the specific services for "Serviços Mais Acessados"
   const mostAccessedServiceNames = [
-    'Impressão',
-    'Currículo',
-    'Certidões',
-    'Escanear / Digitalizar PDF',
+    'Impressão Rápida',
+    'Impressão de Fotos',
     'Foto 3x4',
-    'Situação CPF'
+    'Escanear / Digitalizar PDF',
+    'Currículo',
+    'Certidões'
   ];
-
-  const mostAccessedServices = mostAccessedServiceNames.map(name => {
-    const found = services.find(s => s.name.includes(name.split(' ')[0]));
-    return found || { id: name, name, price: 0 };
-  });
 
   const userName = user?.name || 'Visitante';
 
@@ -102,10 +110,8 @@ export default function HomeScreen() {
       />
       <ScrollView style={commonStyles.container} contentContainerStyle={styles.scrollContent}>
         <View style={commonStyles.section}>
-          {/* App Name */}
           <Text style={styles.appName}>COPINET SERVIÇOS DIGITAIS</Text>
 
-          {/* Login Button - Only show if user is NOT logged in */}
           {!user && (
             <TouchableOpacity 
               style={styles.loginButton}
@@ -115,7 +121,6 @@ export default function HomeScreen() {
             </TouchableOpacity>
           )}
 
-          {/* Welcome Card with Notification Bell */}
           {user && (
             <View style={styles.welcomeCard}>
               <Text style={styles.welcomeGreeting}>Bem-vindo(a)</Text>
@@ -134,7 +139,6 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* Nossas Lojas Section */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Nossas Lojas</Text>
           </View>
@@ -181,17 +185,15 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* Serviços Mais Acessados */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Serviços Mais Acessados</Text>
           </View>
 
           <View style={styles.quickServicesGrid}>
-            {mostAccessedServices.map((service, index) => {
-              const serviceName = service.name;
+            {mostAccessedServiceNames.map((serviceName, index) => {
               let iconName = 'description';
               
-              if (serviceName.includes('Impressão')) iconName = 'print';
+              if (serviceName.includes('Impressão Rápida')) iconName = 'print';
               else if (serviceName.includes('Currículo')) iconName = 'work';
               else if (serviceName.includes('Certidões')) iconName = 'description';
               else if (serviceName.includes('Escanear') || serviceName.includes('Digitalizar')) iconName = 'scanner';
@@ -202,7 +204,7 @@ export default function HomeScreen() {
                 <TouchableOpacity
                   key={index}
                   style={styles.quickServiceCard}
-                  onPress={() => service.id && handleServicePress(service)}
+                  onPress={() => handleServicePress(serviceName)}
                 >
                   <View style={styles.quickServiceIcon}>
                     <IconSymbol 
@@ -218,7 +220,6 @@ export default function HomeScreen() {
             })}
           </View>
 
-          {/* Fazemos pra Você Section - ONLY EXPLANATION */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Fazemos pra Você</Text>
           </View>
@@ -240,7 +241,6 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {/* Faça Sozinho Section - ONLY EXPLANATION */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Faça Sozinho</Text>
             <View style={styles.discountBadge}>
@@ -265,7 +265,6 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {/* Como Funciona Section */}
           <View style={styles.howItWorksCard}>
             <Text style={styles.howItWorksTitle}>Como Funciona</Text>
             
@@ -318,7 +317,6 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* Todos os Pedidos Button */}
           <TouchableOpacity 
             style={styles.ordersButton}
             onPress={handleOrdersPress}
