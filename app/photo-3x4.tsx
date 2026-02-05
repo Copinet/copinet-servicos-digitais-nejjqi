@@ -169,9 +169,9 @@ export default function Photo3x4Screen() {
       console.log('Photo3x4Screen: Processing with AI...');
       
       try {
-        // Create a timeout promise (5 minutes for AI processing)
+        // Create a timeout promise (60 seconds for AI processing)
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('TIMEOUT')), 300000);
+          setTimeout(() => reject(new Error('TIMEOUT')), 60000);
         });
 
         const processPromise = authenticatedPost('/api/ai/remove-background', {

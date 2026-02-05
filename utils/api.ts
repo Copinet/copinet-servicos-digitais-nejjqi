@@ -274,7 +274,7 @@ const sanitizeFilename = (filename: string): string => {
 /**
  * Upload a single file with progress tracking and retry logic
  * Server-side page counting - no local processing to avoid freezing
- * TIMEOUT: 5 minutes (300 seconds) for large files (200+ pages, up to 200MB)
+ * TIMEOUT: 60 seconds for large files (up to 50MB)
  * 
  * @param file - File object with uri, name, and type
  * @param onProgress - Optional callback for upload progress (0-100)
@@ -338,9 +338,9 @@ export const uploadFile = async (
         onProgress(10);
       }
 
-      // Create AbortController for timeout (5 minutes for large files - matches backend)
+      // Create AbortController for timeout (60 seconds for large files - matches backend)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes (300 seconds)
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds
 
       let response;
       try {
@@ -376,14 +376,14 @@ export const uploadFile = async (
         if (response.status === 413 || text.toLowerCase().includes('payload') || text.toLowerCase().includes('too large')) {
           return {
             success: false,
-            error: 'O arquivo é muito pesado para o servidor atual. Tente reduzir o tamanho ou enviar em partes.',
+            error: 'Arquivo muito pesado. O limite atual é 50MB. Tente reduzir o tamanho ou enviar em partes.',
             code: 'PAYLOAD_TOO_LARGE',
           };
         }
         
         return {
           success: false,
-          error: 'O arquivo é muito pesado para o servidor atual. Tente reduzir o tamanho ou enviar em partes.',
+          error: 'Arquivo muito pesado. O limite atual é 50MB. Tente reduzir o tamanho ou enviar em partes.',
           code: 'INVALID_RESPONSE',
         };
       }
@@ -395,7 +395,7 @@ export const uploadFile = async (
         if (response.status === 413) {
           return {
             success: false,
-            error: 'O arquivo é muito pesado para o servidor atual. Tente reduzir o tamanho ou enviar em partes.',
+            error: 'Arquivo muito pesado. O limite atual é 50MB. Tente reduzir o tamanho ou enviar em partes.',
             code: 'PAYLOAD_TOO_LARGE',
           };
         }
@@ -438,7 +438,7 @@ export const uploadFile = async (
       if (error.name === 'AbortError') {
         return {
           success: false,
-          error: 'Upload excedeu o tempo limite de 5 minutos. O arquivo pode ser muito grande. Tente com um arquivo menor ou divida em partes.',
+          error: 'Upload excedeu o tempo limite de 60 segundos. O arquivo pode ser muito grande. Tente com um arquivo menor ou divida em partes.',
           code: 'UPLOAD_TIMEOUT',
         };
       }
@@ -567,12 +567,12 @@ export const uploadMultipleFiles = async (
  */
 export const getErrorMessage = (code?: string, defaultMessage?: string): string => {
   const errorMessages: Record<string, string> = {
-    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 200MB por arquivo.',
-    'PAYLOAD_TOO_LARGE': 'O arquivo é muito pesado para o servidor atual. Tente reduzir o tamanho ou enviar em partes.',
+    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 50MB por arquivo.',
+    'PAYLOAD_TOO_LARGE': 'Arquivo muito pesado. O limite atual é 50MB. Tente reduzir o tamanho ou enviar em partes.',
     'TOO_MANY_PAGES': 'PDF com muitas páginas. O máximo é 1500 páginas.',
     'INVALID_FORMAT': 'Formato de arquivo inválido. Use PDF, Word, ou imagens (JPG, PNG).',
     'PROCESSING_FAILED': 'Não foi possível processar o arquivo. Tente novamente.',
-    'TIMEOUT': 'O processamento demorou muito (máx. 5 minutos). Tente com um arquivo menor ou divida em partes.',
+    'TIMEOUT': 'O processamento demorou muito (máx. 60 segundos). Tente com um arquivo menor ou divida em partes.',
     'NETWORK_ERROR': 'Erro de conexão. Verifique sua internet e tente novamente.',
     'UPLOAD_FAILED': 'Falha no upload. Tente novamente.',
     'UNAUTHORIZED': 'Você precisa fazer login para continuar.',
@@ -581,9 +581,9 @@ export const getErrorMessage = (code?: string, defaultMessage?: string): string 
     'STORAGE_ERROR': 'Erro ao salvar arquivo. Tente novamente.',
     'NO_FILE': 'Nenhum arquivo foi selecionado.',
     'MAX_RETRIES_EXCEEDED': 'Upload falhou após múltiplas tentativas. Verifique sua conexão.',
-    'UPLOAD_TIMEOUT': 'Upload excedeu o tempo limite de 5 minutos. O arquivo pode ser muito grande. Tente com um arquivo menor ou divida em partes.',
+    'UPLOAD_TIMEOUT': 'Upload excedeu o tempo limite de 60 segundos. O arquivo pode ser muito grande. Tente com um arquivo menor ou divida em partes.',
     'TOO_MANY_FILES': 'Máximo de 10 arquivos por vez.',
-    'INVALID_RESPONSE': 'O arquivo é muito pesado para o servidor atual. Tente reduzir o tamanho ou enviar em partes.',
+    'INVALID_RESPONSE': 'Arquivo muito pesado. O limite atual é 50MB. Tente reduzir o tamanho ou enviar em partes.',
   };
 
   return errorMessages[code || ''] || defaultMessage || 'Ocorreu um erro. Tente novamente.';
