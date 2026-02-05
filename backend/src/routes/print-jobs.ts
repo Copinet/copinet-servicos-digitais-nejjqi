@@ -281,6 +281,171 @@ export function registerPrintJobsRoutes(app: App, fastify: FastifyInstance) {
     return updatedJob[0];
   });
 
+  // POST /api/print-jobs/:printJobId/assign-partner - Assign partner to print job
+  fastify.post<{ Params: { printJobId: string }; Body: { partnerId: string; storeId?: string } }>(
+    '/api/print-jobs/:printJobId/assign-partner',
+    {
+      schema: {
+        description: 'Assign a partner or store to a print job',
+        tags: ['print-jobs'],
+        params: {
+          type: 'object',
+          properties: {
+            printJobId: { type: 'string' },
+          },
+          required: ['printJobId'],
+        },
+        body: {
+          type: 'object',
+          properties: {
+            partnerId: { type: 'string' },
+            storeId: { type: 'string' },
+          },
+          required: ['partnerId'],
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              printJob: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  status: { type: 'string' },
+                  partnerId: { type: 'string' },
+                  partnerName: { type: 'string' },
+                  estimatedReadyTime: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Params: { printJobId: string }; Body: { partnerId: string; storeId?: string } }>, reply: FastifyReply) => {
+      const session = await requireAuth(request, reply);
+      if (!session) return;
+
+      const { printJobId } = request.params;
+      const { partnerId, storeId } = request.body;
+      const userId = session.user.id;
+
+      app.logger.info(
+        { printJobId, userId, partnerId, storeId },
+        'Assigning partner to print job'
+      );
+
+      // Find the print job
+      const printJob = await app.db.query.printJobs.findFirst({
+        where: eq(schema.printJobs.id, printJobId),
+      });
+
+      if (!printJob) {
+        app.logger.warn({ printJobId }, 'Print job not found');
+        return reply.status(404).send({
+          success: false,
+          error: 'Pedido não encontrado',
+          code: 'NOT_FOUND',
+        });
+      }
+
+      // Verify ownership
+      if (printJob.userId !== userId) {
+        app.logger.warn({ printJobId, userId, jobUserId: printJob.userId }, 'Unauthorized partner assignment');
+        return reply.status(403).send({
+          success: false,
+          error: 'Não autorizado para atualizar este pedido',
+          code: 'UNAUTHORIZED',
+        });
+      }
+
+      try {
+        // Get partner or store details
+        let partnerName = '';
+        let partnerInfo: any = null;
+
+        if (storeId) {
+          // Try to get store first
+          const store = await app.db.query.stores.findFirst({
+            where: eq(schema.stores.id, storeId),
+          });
+          if (store) {
+            partnerName = store.name as string;
+            partnerInfo = store;
+          }
+        }
+
+        // If no store found, try partner
+        if (!partnerInfo) {
+          const partner = await app.db.query.partners.findFirst({
+            where: eq(schema.partners.id, partnerId),
+          });
+          if (partner) {
+            partnerName = partner.businessName as string;
+            partnerInfo = partner;
+          }
+        }
+
+        if (!partnerInfo) {
+          app.logger.warn({ partnerId, storeId }, 'Partner/store not found');
+          return reply.status(404).send({
+            success: false,
+            error: 'Parceiro ou loja não encontrado',
+            code: 'PARTNER_NOT_FOUND',
+          });
+        }
+
+        // Calculate estimated ready time (10-15 minutes from now)
+        const estimatedReadyTime = new Date(Date.now() + 12 * 60 * 1000).toISOString();
+
+        // Update print job
+        const existingOptions = (printJob.options || {}) as Record<string, any>;
+        const updatedJob = await app.db
+          .update(schema.printJobs)
+          .set({
+            options: {
+              ...existingOptions,
+              assignedPartnerId: partnerId,
+              assignedStoreId: storeId,
+              partnerName,
+              estimatedReadyTime,
+            } as any,
+            status: 'partner_assigned',
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.printJobs.id, printJobId))
+          .returning();
+
+        app.logger.info(
+          { printJobId, partnerId, partnerName, status: 'partner_assigned' },
+          'Partner assigned successfully'
+        );
+
+        return {
+          success: true,
+          printJob: {
+            id: updatedJob[0].id,
+            status: updatedJob[0].status,
+            partnerId,
+            partnerName,
+            estimatedReadyTime,
+          },
+        };
+      } catch (error) {
+        app.logger.error(
+          { printJobId, partnerId, error: (error as Error).message },
+          'Error assigning partner'
+        );
+        return reply.status(500).send({
+          success: false,
+          error: 'Erro ao atribuir parceiro. Tente novamente.',
+          code: 'ASSIGNMENT_ERROR',
+        });
+      }
+    }
+  );
+
   // DELETE /api/print-jobs/:id - Deletes print job
   fastify.delete('/api/print-jobs/:id', {
     schema: {

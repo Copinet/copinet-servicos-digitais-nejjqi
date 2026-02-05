@@ -21,7 +21,7 @@ interface MultipleUploadResponse {
   failed: Array<{ filename: string; error: string; code: string }>;
 }
 
-const MAX_FILE_SIZE = 150 * 1024 * 1024; // 150MB
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
 const MAX_PDF_PAGES = 1500;
 const MAX_FILENAME_LENGTH = 200;
 const UPLOAD_TIMEOUT = 5 * 60 * 1000; // 5 minutes
@@ -208,7 +208,37 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
       }, UPLOAD_TIMEOUT);
 
       try {
-        const data = await request.file();
+        let data;
+        try {
+          data = await request.file();
+        } catch (fileError) {
+          const errorMsg = (fileError as Error).message || '';
+          app.logger.error(
+            { userId, error: errorMsg },
+            'Erro ao receber arquivo'
+          );
+
+          // Check for payload too large errors
+          if (
+            errorMsg.includes('413') ||
+            errorMsg.includes('Payload Too Large') ||
+            errorMsg.includes('payloadTooLarge') ||
+            errorMsg.includes('exceed')
+          ) {
+            return reply.status(413).send({
+              success: false,
+              error: 'O arquivo é muito grande para ser enviado. O tamanho máximo é 200MB. Por favor, reduza o tamanho do arquivo ou envie em partes.',
+              code: 'PAYLOAD_TOO_LARGE',
+            } as ErrorResponse);
+          }
+
+          return reply.status(400).send({
+            success: false,
+            error: 'Erro ao receber arquivo. Tente novamente.',
+            code: 'FILE_RECEIVE_ERROR',
+          } as ErrorResponse);
+        }
+
         if (!data) {
           app.logger.warn({ userId }, 'Arquivo não fornecido na request');
           return reply.status(400).send({
@@ -243,12 +273,12 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
 
           if (totalSize > MAX_FILE_SIZE) {
             app.logger.error(
-              { userId, size: totalSize },
+              { userId, size: totalSize, limit: MAX_FILE_SIZE },
               'Arquivo muito grande'
             );
             return reply.status(413).send({
               success: false,
-              error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo: 150MB`,
+              error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo permitido: 200MB. Por favor, reduza o tamanho do arquivo ou envie em partes.`,
               code: 'FILE_TOO_LARGE',
             } as ErrorResponse);
           }
@@ -413,7 +443,48 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
       }, UPLOAD_TIMEOUT);
 
       try {
-        const files = await request.files();
+        let files;
+        try {
+          files = await request.files();
+        } catch (filesError) {
+          const errorMsg = (filesError as Error).message || '';
+          app.logger.error(
+            { userId, error: errorMsg },
+            'Erro ao receber múltiplos arquivos'
+          );
+
+          // Check for payload too large errors
+          if (
+            errorMsg.includes('413') ||
+            errorMsg.includes('Payload Too Large') ||
+            errorMsg.includes('payloadTooLarge')
+          ) {
+            clearTimeout(timeoutId);
+            return reply.status(413).send({
+              uploads: [],
+              failed: [
+                {
+                  filename: 'todos',
+                  error: 'Um ou mais arquivos são muito grandes. Máximo: 200MB por arquivo.',
+                  code: 'PAYLOAD_TOO_LARGE',
+                },
+              ],
+            } as MultipleUploadResponse);
+          }
+
+          clearTimeout(timeoutId);
+          return reply.status(400).send({
+            uploads: [],
+            failed: [
+              {
+                filename: 'todos',
+                error: 'Erro ao receber arquivos. Tente novamente.',
+                code: 'FILES_RECEIVE_ERROR',
+              },
+            ],
+          } as MultipleUploadResponse);
+        }
+
         const uploadPromises = [];
         let fileCount = 0;
 
@@ -454,12 +525,12 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
 
                 if (totalSize > MAX_FILE_SIZE) {
                   app.logger.warn(
-                    { userId, filename: fileData.filename, size: totalSize },
+                    { userId, filename: fileData.filename, size: totalSize, limit: MAX_FILE_SIZE },
                     'Arquivo muito grande'
                   );
                   failedFiles.push({
                     filename: fileData.filename,
-                    error: `Muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB)`,
+                    error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo: 200MB`,
                     code: 'FILE_TOO_LARGE',
                   });
                   return;

@@ -29,6 +29,7 @@ export type App = typeof app;
 app.withAuth();
 
 // Enable storage for file uploads
+// The storage automatically handles multipart uploads with proper limits
 app.withStorage();
 
 // Register all route modules
