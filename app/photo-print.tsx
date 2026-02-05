@@ -212,12 +212,13 @@ export default function PhotoPrintScreen() {
       console.log('PhotoPrintScreen: Print job created:', response);
 
       router.push({
-        pathname: '/payment',
+        pathname: '/stores-map',
         params: {
           serviceId: 'photo_print',
           serviceName: 'Impressão de Fotos',
           totalPrice: totalPrice.toFixed(2),
           printJobId: response.id,
+          needsPrinting: 'true',
         },
       });
     } catch (error) {
@@ -422,7 +423,7 @@ export default function PhotoPrintScreen() {
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <>
-                    <Text style={styles.continueButtonText}>Continuar para Pagamento</Text>
+                    <Text style={styles.continueButtonText}>Escolher Onde Retirar</Text>
                     <IconSymbol 
                       ios_icon_name="arrow.right" 
                       android_material_icon_name="arrow-forward" 

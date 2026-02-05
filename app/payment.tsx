@@ -54,9 +54,33 @@ export default function PaymentScreen() {
     }
   };
 
-  const handleSuccessClose = () => {
+  const handleSuccessClose = async () => {
     setShowSuccessModal(false);
-    router.push('/(tabs)/orders');
+    
+    try {
+      const { authenticatedPost } = await import('@/utils/api');
+      
+      const response = await authenticatedPost(`/api/orders/create-from-print-job`, {
+        printJobId,
+        paymentMethod: 'pix',
+        paymentStatus: 'approved',
+        partnerId: params.partnerId,
+        partnerName: params.partnerName,
+        partnerAddress: params.partnerAddress,
+      });
+
+      console.log('PaymentScreen: Order created:', response);
+
+      router.replace({
+        pathname: '/order-success',
+        params: {
+          orderId: response.orderId || printJobId,
+        },
+      });
+    } catch (error) {
+      console.error('PaymentScreen: Error creating order:', error);
+      router.push('/(tabs)/orders');
+    }
   };
 
   const priceValue = parseFloat(totalPrice);

@@ -465,10 +465,11 @@ export const uploadMultipleFiles = async (
  */
 export const getErrorMessage = (code?: string, defaultMessage?: string): string => {
   const errorMessages: Record<string, string> = {
-    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 100MB.',
+    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 150MB.',
+    'TOO_MANY_PAGES': 'PDF com muitas páginas. O máximo é 1500 páginas.',
     'INVALID_FORMAT': 'Formato de arquivo inválido. Use PDF, Word, ou imagens (JPG, PNG).',
     'PROCESSING_FAILED': 'Não foi possível processar o arquivo. Tente novamente.',
-    'TIMEOUT': 'O processamento demorou muito. Tente com um arquivo menor.',
+    'TIMEOUT': 'O processamento demorou muito (máx. 5 minutos). Tente com um arquivo menor.',
     'NETWORK_ERROR': 'Erro de conexão. Verifique sua internet e tente novamente.',
     'UPLOAD_FAILED': 'Falha no upload. Tente novamente.',
     'UNAUTHORIZED': 'Você precisa fazer login para continuar.',

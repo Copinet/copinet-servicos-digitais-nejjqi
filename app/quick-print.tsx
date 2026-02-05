@@ -256,12 +256,13 @@ export default function QuickPrintScreen() {
       console.log('QuickPrintScreen: Print job created:', response);
 
       router.push({
-        pathname: '/payment',
+        pathname: '/stores-map',
         params: {
           serviceId: 'quick_print',
           serviceName: 'Impressão Rápida',
           totalPrice: totalPrice.toFixed(2),
           printJobId: response.id,
+          needsPrinting: 'true',
         },
       });
     } catch (error) {
@@ -481,7 +482,7 @@ export default function QuickPrintScreen() {
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <>
-                    <Text style={styles.continueButtonText}>Continuar para Pagamento</Text>
+                    <Text style={styles.continueButtonText}>Escolher Onde Retirar</Text>
                     <IconSymbol 
                       ios_icon_name="arrow.right" 
                       android_material_icon_name="arrow-forward" 

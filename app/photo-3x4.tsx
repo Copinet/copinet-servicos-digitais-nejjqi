@@ -1,12 +1,12 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Platform, Image } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '@/styles/commonStyles';
 import { IconSymbol } from '@/components/IconSymbol';
 import * as ImagePicker from 'expo-image-picker';
-import { Camera, CameraType } from 'expo-camera';
+import { Camera, CameraType, CameraView } from 'expo-camera';
 
 interface Photo {
   uri: string;
@@ -17,12 +17,14 @@ interface Photo {
 
 export default function Photo3x4Screen() {
   const router = useRouter();
+  const cameraRef = useRef<any>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraPermission, setCameraPermission] = useState<boolean | null>(null);
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [totalPrice, setTotalPrice] = useState(10.00);
   const [pricing, setPricing] = useState<any>(null);
   const [errorModal, setErrorModal] = useState({ visible: false, title: '', message: '' });
@@ -57,32 +59,49 @@ export default function Photo3x4Screen() {
     setErrorModal({ visible: true, title, message });
   };
 
-  const handleTakePhoto = async () => {
+  const handleOpenCamera = () => {
     if (!cameraPermission) {
       showError('Permissão Necessária', 'Por favor, permita o acesso à câmera para tirar fotos.');
       return;
     }
+    setShowCamera(true);
+  };
+
+  const handleTakePhoto = async () => {
+    if (!cameraRef.current) {
+      return;
+    }
 
     try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [3, 4],
+      console.log('Photo3x4Screen: Taking photo...');
+      const photo = await cameraRef.current.takePictureAsync({
         quality: 1,
+        base64: false,
       });
 
-      if (!result.canceled && result.assets && result.assets[0]) {
-        const newPhoto: Photo = {
-          uri: result.assets[0].uri,
-          selected: false,
-          processed: false,
-        };
-        setPhotos(prev => [...prev, newPhoto]);
-      }
+      console.log('Photo3x4Screen: Photo taken:', photo.uri);
+      setCapturedPhoto(photo.uri);
     } catch (error) {
       console.error('Photo3x4Screen: Error taking photo:', error);
       showError('Erro', 'Não foi possível tirar a foto. Tente novamente.');
     }
+  };
+
+  const handleAcceptPhoto = () => {
+    if (capturedPhoto) {
+      const newPhoto: Photo = {
+        uri: capturedPhoto,
+        selected: false,
+        processed: false,
+      };
+      setPhotos(prev => [...prev, newPhoto]);
+      setCapturedPhoto(null);
+      setShowCamera(false);
+    }
+  };
+
+  const handleRejectPhoto = () => {
+    setCapturedPhoto(null);
   };
 
   const handlePickFromGallery = async () => {
@@ -130,7 +149,6 @@ export default function Photo3x4Screen() {
 
     setProcessing(true);
     try {
-      // Upload the photo first
       const { uploadFile, authenticatedPost, getErrorMessage } = await import('@/utils/api');
       
       const file = {
@@ -148,11 +166,9 @@ export default function Photo3x4Screen() {
 
       console.log('Photo3x4Screen: Photo uploaded:', uploadResult);
 
-      // Process with AI to remove background (with timeout and fallback)
       console.log('Photo3x4Screen: Processing with AI...');
       
       try {
-        // Create a timeout promise (30 seconds)
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('TIMEOUT')), 30000);
         });
@@ -165,9 +181,7 @@ export default function Photo3x4Screen() {
 
         console.log('Photo3x4Screen: Photo processed:', processResponse);
 
-        // Check if processing was successful
         if (processResponse.success && processResponse.processedImageUrl) {
-          // Update the photo with processed version
           setPhotos(prev => prev.map(photo => 
             photo.uri === selectedPhoto.uri 
               ? { ...photo, processed: true, processedUrl: processResponse.processedImageUrl }
@@ -182,7 +196,6 @@ export default function Photo3x4Screen() {
 
           showError('Sucesso', 'Foto processada com sucesso! Fundo branco aplicado.');
         } else {
-          // Fallback: Use original image if AI processing failed
           console.warn('Photo3x4Screen: AI processing failed, using original image');
           setPhotos(prev => prev.map(photo => 
             photo.uri === selectedPhoto.uri 
@@ -199,7 +212,6 @@ export default function Photo3x4Screen() {
           showError('Aviso', 'Não foi possível remover o fundo automaticamente. A foto original será usada.');
         }
       } catch (aiError: any) {
-        // Fallback: Use original image if AI processing times out or fails
         console.warn('Photo3x4Screen: AI processing error, using original image:', aiError);
         
         setPhotos(prev => prev.map(photo => 
@@ -263,12 +275,13 @@ export default function Photo3x4Screen() {
       console.log('Photo3x4Screen: Print job created:', response);
 
       router.push({
-        pathname: '/payment',
+        pathname: '/stores-map',
         params: {
           serviceId: 'photo_3x4',
           serviceName: 'Foto 3x4 para Documentos',
           totalPrice: totalPrice.toFixed(2),
           printJobId: response.id,
+          needsPrinting: 'true',
         },
       });
     } catch (error) {
@@ -278,6 +291,69 @@ export default function Photo3x4Screen() {
       setLoading(false);
     }
   };
+
+  if (showCamera) {
+    return (
+      <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
+        <Stack.Screen 
+          options={{
+            title: 'Tirar Foto',
+            headerShown: true,
+            headerBackTitle: 'Voltar',
+          }}
+        />
+        <View style={styles.cameraContainer}>
+          {capturedPhoto ? (
+            <>
+              <Image source={{ uri: capturedPhoto }} style={styles.capturedImage} resizeMode="contain" />
+              <View style={styles.captureActions}>
+                <TouchableOpacity style={styles.rejectButton} onPress={handleRejectPhoto}>
+                  <IconSymbol 
+                    ios_icon_name="xmark.circle.fill" 
+                    android_material_icon_name="cancel" 
+                    size={32} 
+                    color={colors.error} 
+                  />
+                  <Text style={styles.rejectButtonText}>Recusar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.acceptButton} onPress={handleAcceptPhoto}>
+                  <IconSymbol 
+                    ios_icon_name="checkmark.circle.fill" 
+                    android_material_icon_name="check-circle" 
+                    size={32} 
+                    color={colors.success} 
+                  />
+                  <Text style={styles.acceptButtonText}>Aceitar</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <>
+              <CameraView 
+                ref={cameraRef}
+                style={styles.camera}
+                facing="front"
+              />
+              <View style={styles.cameraControls}>
+                <TouchableOpacity style={styles.closeButton} onPress={() => setShowCamera(false)}>
+                  <IconSymbol 
+                    ios_icon_name="xmark" 
+                    android_material_icon_name="close" 
+                    size={28} 
+                    color="#FFFFFF" 
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.captureButton} onPress={handleTakePhoto}>
+                  <View style={styles.captureButtonInner} />
+                </TouchableOpacity>
+                <View style={styles.placeholder} />
+              </View>
+            </>
+          )}
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
@@ -309,7 +385,7 @@ export default function Photo3x4Screen() {
             <View style={styles.uploadButtons}>
               <TouchableOpacity 
                 style={styles.uploadButton}
-                onPress={handleTakePhoto}
+                onPress={handleOpenCamera}
               >
                 <IconSymbol 
                   ios_icon_name="camera.fill" 
@@ -406,7 +482,7 @@ export default function Photo3x4Screen() {
                   </View>
 
                   <TouchableOpacity 
-                    style={[styles.processButton, processing && styles.processButtonDisabled]}
+                    style={[styles.processButton, (processing || selectedPhoto.processed) && styles.processButtonDisabled]}
                     onPress={handleProcessPhoto}
                     disabled={processing || selectedPhoto.processed}
                   >
@@ -458,7 +534,7 @@ export default function Photo3x4Screen() {
               </View>
 
               <TouchableOpacity 
-                style={[styles.continueButton, loading && styles.continueButtonDisabled]}
+                style={[styles.continueButton, (loading || !selectedPhoto?.processed) && styles.continueButtonDisabled]}
                 onPress={handleContinue}
                 disabled={loading || !selectedPhoto?.processed}
               >
@@ -466,7 +542,7 @@ export default function Photo3x4Screen() {
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <>
-                    <Text style={styles.continueButtonText}>Continuar para Pagamento</Text>
+                    <Text style={styles.continueButtonText}>Escolher Onde Retirar</Text>
                     <IconSymbol 
                       ios_icon_name="arrow.right" 
                       android_material_icon_name="arrow-forward" 
@@ -507,6 +583,83 @@ export default function Photo3x4Screen() {
 const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 40,
+  },
+  cameraContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  camera: {
+    flex: 1,
+  },
+  capturedImage: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  cameraControls: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  closeButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  captureButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 4,
+    borderColor: colors.secondary,
+  },
+  captureButtonInner: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.secondary,
+  },
+  placeholder: {
+    width: 56,
+    height: 56,
+  },
+  captureActions: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  rejectButton: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  rejectButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.error,
+  },
+  acceptButton: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  acceptButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.success,
   },
   headerCard: {
     backgroundColor: colors.card,
