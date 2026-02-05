@@ -21,7 +21,7 @@ interface MultipleUploadResponse {
   failed: Array<{ filename: string; error: string; code: string }>;
 }
 
-const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const MAX_PDF_PAGES = 1500;
 const MAX_FILENAME_LENGTH = 200;
 const UPLOAD_TIMEOUT = 5 * 60 * 1000; // 5 minutes
@@ -227,7 +227,7 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
           ) {
             return reply.status(413).send({
               success: false,
-              error: 'O arquivo é muito grande para ser enviado. O tamanho máximo é 200MB. Por favor, reduza o tamanho do arquivo ou envie em partes.',
+              error: 'O arquivo é muito grande para ser enviado. O tamanho máximo é 100MB. Por favor, reduza o tamanho do arquivo ou envie em partes.',
               code: 'PAYLOAD_TOO_LARGE',
             } as ErrorResponse);
           }
@@ -278,7 +278,7 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
             );
             return reply.status(413).send({
               success: false,
-              error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo permitido: 200MB. Por favor, reduza o tamanho do arquivo ou envie em partes.`,
+              error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo permitido: 100MB. Por favor, reduza o tamanho do arquivo ou envie em partes.`,
               code: 'FILE_TOO_LARGE',
             } as ErrorResponse);
           }
@@ -465,7 +465,7 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
               failed: [
                 {
                   filename: 'todos',
-                  error: 'Um ou mais arquivos são muito grandes. Máximo: 200MB por arquivo.',
+                  error: 'Um ou mais arquivos são muito grandes. Máximo: 100MB por arquivo.',
                   code: 'PAYLOAD_TOO_LARGE',
                 },
               ],
@@ -530,7 +530,7 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
                   );
                   failedFiles.push({
                     filename: fileData.filename,
-                    error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo: 200MB`,
+                    error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo: 100MB`,
                     code: 'FILE_TOO_LARGE',
                   });
                   return;
