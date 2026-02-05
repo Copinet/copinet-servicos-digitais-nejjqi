@@ -371,19 +371,22 @@ export function registerPrintJobsRoutes(app: App, fastify: FastifyInstance) {
         // Get partner or store details
         let partnerName = '';
         let partnerInfo: any = null;
+        let isStore = false;
 
-        if (storeId) {
-          // Try to get store first
-          const store = await app.db.query.stores.findFirst({
-            where: eq(schema.stores.id, storeId),
-          });
-          if (store) {
-            partnerName = store.name as string;
-            partnerInfo = store;
-          }
+        // First, try to find in stores table (if storeId provided or partnerId could be a store ID)
+        const storeQuery = storeId || partnerId;
+        const store = await app.db.query.stores.findFirst({
+          where: eq(schema.stores.id, storeQuery),
+        });
+
+        if (store) {
+          partnerName = store.name as string;
+          partnerInfo = store;
+          isStore = true;
+          app.logger.info({ storeId: storeQuery, storeName: partnerName }, 'Store found');
         }
 
-        // If no store found, try partner
+        // If no store found, try to find in partners table
         if (!partnerInfo) {
           const partner = await app.db.query.partners.findFirst({
             where: eq(schema.partners.id, partnerId),
@@ -391,14 +394,19 @@ export function registerPrintJobsRoutes(app: App, fastify: FastifyInstance) {
           if (partner) {
             partnerName = partner.businessName as string;
             partnerInfo = partner;
+            app.logger.info({ partnerId, partnerName }, 'Partner found');
           }
         }
 
+        // If still not found, return error
         if (!partnerInfo) {
-          app.logger.warn({ partnerId, storeId }, 'Partner/store not found');
+          app.logger.warn(
+            { partnerId, storeId, searchedId: storeQuery },
+            'Partner/store not found in database'
+          );
           return reply.status(404).send({
             success: false,
-            error: 'Parceiro ou loja não encontrado',
+            error: 'Erro ao conectar com a loja. Verifique se a loja está cadastrada.',
             code: 'PARTNER_NOT_FOUND',
           });
         }

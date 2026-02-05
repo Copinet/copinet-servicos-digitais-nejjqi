@@ -225,9 +225,10 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
             errorMsg.includes('payloadTooLarge') ||
             errorMsg.includes('exceed')
           ) {
+            app.logger.warn({ userId, error: errorMsg }, 'Payload too large for single upload');
             return reply.status(413).send({
               success: false,
-              error: 'O arquivo é muito grande para ser enviado. O tamanho máximo é 50MB. Por favor, reduza o tamanho do arquivo ou envie em partes.',
+              error: 'Arquivo muito grande',
               code: 'PAYLOAD_TOO_LARGE',
             } as ErrorResponse);
           }
@@ -459,13 +460,14 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
             errorMsg.includes('Payload Too Large') ||
             errorMsg.includes('payloadTooLarge')
           ) {
+            app.logger.warn({ userId, error: errorMsg }, 'Payload too large for multiple upload');
             clearTimeout(timeoutId);
             return reply.status(413).send({
               uploads: [],
               failed: [
                 {
                   filename: 'todos',
-                  error: 'Um ou mais arquivos são muito grandes. Máximo: 50MB por arquivo.',
+                  error: 'Arquivo muito grande',
                   code: 'PAYLOAD_TOO_LARGE',
                 },
               ],

@@ -26,7 +26,8 @@ export const app = await createApplication(schema);
 export type App = typeof app;
 
 // Configure server limits for large file uploads
-// Set socket timeout for upload and print-jobs routes to 60 seconds for processing large files
+// Server is configured to accept payloads up to 50MB (52428800 bytes)
+// Socket timeout is set to 60 seconds for processing large files
 app.fastify.addHook('onRequest', async (request, reply) => {
   // Set socket timeout for upload and print-jobs routes (60 seconds)
   if (request.url.includes('/api/upload') || request.url.includes('/api/print-jobs')) {
