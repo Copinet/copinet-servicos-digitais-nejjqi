@@ -30,6 +30,13 @@ interface UpdatePrintJobBody {
 export function registerPrintJobsRoutes(app: App, fastify: FastifyInstance) {
   const requireAuth = app.requireAuth();
 
+  // Add timeout hook for print-jobs routes (60 seconds for PDF processing)
+  fastify.addHook('preHandler', async (request, reply) => {
+    if (request.url.includes('/api/print-jobs')) {
+      request.socket.setTimeout(60000); // 60 seconds
+    }
+  });
+
   // GET /api/print-jobs - Returns all print jobs for authenticated user
   fastify.get('/api/print-jobs', {
     schema: {
@@ -281,9 +288,9 @@ export function registerPrintJobsRoutes(app: App, fastify: FastifyInstance) {
     return updatedJob[0];
   });
 
-  // POST /api/print-jobs/:printJobId/assign-partner - Assign partner to print job
-  fastify.post<{ Params: { printJobId: string }; Body: { partnerId: string; storeId?: string } }>(
-    '/api/print-jobs/:printJobId/assign-partner',
+  // POST /api/print-jobs/:id/assign-partner - Assign partner to print job
+  fastify.post<{ Params: { id: string }; Body: { partnerId: string; storeId?: string } }>(
+    '/api/print-jobs/:id/assign-partner',
     {
       schema: {
         description: 'Assign a partner or store to a print job',
@@ -291,9 +298,9 @@ export function registerPrintJobsRoutes(app: App, fastify: FastifyInstance) {
         params: {
           type: 'object',
           properties: {
-            printJobId: { type: 'string' },
+            id: { type: 'string' },
           },
-          required: ['printJobId'],
+          required: ['id'],
         },
         body: {
           type: 'object',
@@ -323,11 +330,11 @@ export function registerPrintJobsRoutes(app: App, fastify: FastifyInstance) {
         },
       },
     },
-    async (request: FastifyRequest<{ Params: { printJobId: string }; Body: { partnerId: string; storeId?: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string }; Body: { partnerId: string; storeId?: string } }>, reply: FastifyReply) => {
       const session = await requireAuth(request, reply);
       if (!session) return;
 
-      const { printJobId } = request.params;
+      const printJobId = request.params.id;
       const { partnerId, storeId } = request.body;
       const userId = session.user.id;
 
