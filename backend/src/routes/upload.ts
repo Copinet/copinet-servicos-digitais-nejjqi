@@ -51,46 +51,76 @@ function sanitizeFilename(filename: string): string {
   return sanitized;
 }
 
-// Extract PDF page count - Multiple strategies
+// Extract PDF page count - Improved parsing with better metadata extraction
 function extractPDFPageCount(buffer: Buffer): number {
   try {
     const content = buffer.toString('latin1');
+    let detectedPages = 0;
+    let method = 'none';
 
-    // Strategy 1: Find /Count in /Pages object (most reliable)
-    const countMatch = content.match(/\/Pages\s*<<[^>]*?\/Count\s*(\d+)/);
+    // Strategy 1: Find /Count in /Pages object (most reliable - standard PDF structure)
+    // This is the official way PDF stores page count in the catalog
+    const countMatch = content.match(/\/Pages\s+(\d+)\s+0\s+R/);
     if (countMatch) {
-      const count = parseInt(countMatch[1], 10);
-      if (count > 0 && count <= MAX_PDF_PAGES) {
-        return count;
+      const pageRefNum = parseInt(countMatch[1], 10);
+      const pageObjRegex = new RegExp(`${pageRefNum}\\s+0\\s+obj[\\s\\S]*?\/Count\\s+(\\d+)`);
+      const pageObjMatch = content.match(pageObjRegex);
+      if (pageObjMatch) {
+        detectedPages = parseInt(pageObjMatch[1], 10);
+        method = 'pdf-catalog-count';
+        if (detectedPages > 0 && detectedPages <= MAX_PDF_PAGES) {
+          return detectedPages;
+        }
       }
     }
 
-    // Strategy 2: Count /Type /Page occurrences
-    const pageMatches = content.match(/\/Type\s*\/Page\s*(?!s)/g);
+    // Strategy 2: Direct /Count in Pages dictionary (alternative PDF structure)
+    const directCountMatch = content.match(/\/Type\s+\/Pages[^>]*?\/Count\s+(\d+)/);
+    if (directCountMatch) {
+      detectedPages = parseInt(directCountMatch[1], 10);
+      method = 'pdf-direct-count';
+      if (detectedPages > 0 && detectedPages <= MAX_PDF_PAGES) {
+        return detectedPages;
+      }
+    }
+
+    // Strategy 3: Count actual page objects (/Type /Page)
+    // More reliable than other estimates for complex PDFs
+    const pageObjRegex = /\/Type\s+\/Page\s+(?!s)(?=\/)/g;
+    const pageMatches = content.match(pageObjRegex);
     if (pageMatches && pageMatches.length > 0) {
-      return Math.min(pageMatches.length, MAX_PDF_PAGES);
-    }
-
-    // Strategy 3: Check for stream objects (common in PDFs)
-    const streamMatches = content.match(/stream[\s\S]*?endstream/g);
-    if (streamMatches && streamMatches.length > 0) {
-      const estimatedPages = Math.ceil(streamMatches.length / 2);
-      if (estimatedPages > 0 && estimatedPages <= MAX_PDF_PAGES) {
-        return estimatedPages;
+      detectedPages = pageMatches.length;
+      method = 'pdf-page-objects';
+      if (detectedPages > 0 && detectedPages <= MAX_PDF_PAGES) {
+        return detectedPages;
       }
     }
 
-    // Strategy 4: Check xref entries
-    const xrefMatch = content.match(/xref[\s\S]*?(\d+)\s+(\d+)/);
-    if (xrefMatch) {
-      const objects = parseInt(xrefMatch[2], 10);
-      const estimatedPages = Math.ceil(objects / 10);
-      if (estimatedPages > 0 && estimatedPages <= MAX_PDF_PAGES) {
-        return estimatedPages;
+    // Strategy 4: Look for page tree structure with Kids array
+    const kidsMatch = content.match(/\/Kids\s*\[\s*([\d\s\w\nR]+)\s*\]/g);
+    if (kidsMatch) {
+      // Count the references (each "n 0 R" is a page reference)
+      const allKids = kidsMatch.join(' ');
+      const refMatches = allKids.match(/(\d+)\s+0\s+R/g);
+      if (refMatches) {
+        detectedPages = refMatches.length;
+        method = 'pdf-kids-array';
+        if (detectedPages > 0 && detectedPages <= MAX_PDF_PAGES) {
+          return detectedPages;
+        }
       }
     }
 
-    // Default: 1 page
+    // Strategy 5: Conservative estimate based on file size
+    // PDFs average 3KB-5KB per page (with compression)
+    if (buffer.length > 0) {
+      detectedPages = Math.max(1, Math.ceil(buffer.length / 4000));
+      method = 'pdf-filesize-estimate';
+      detectedPages = Math.min(detectedPages, MAX_PDF_PAGES);
+      return detectedPages;
+    }
+
+    // Fallback: 1 page
     return 1;
   } catch (error) {
     return 1;
@@ -98,10 +128,32 @@ function extractPDFPageCount(buffer: Buffer): number {
 }
 
 // Estimate page count for Word documents
-function estimateWordPageCount(fileSize: number): number {
-  // Rough estimate: 1 page per 50KB
-  const estimatedPages = Math.ceil(fileSize / 50000);
-  return Math.min(estimatedPages, MAX_PDF_PAGES);
+function estimateWordPageCount(buffer: Buffer, mimeType: string): number {
+  try {
+    // For .docx files, try to extract actual content
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      // .docx is a ZIP file, try to find document.xml
+      const docXmlStart = buffer.indexOf(Buffer.from('<?xml'));
+      if (docXmlStart !== -1) {
+        // Found XML content
+        const contentLength = buffer.length - docXmlStart;
+        // Estimate: ~3000-4000 characters per page in Word docs
+        // Being conservative with 3500 chars/page
+        const estimatedPages = Math.max(1, Math.ceil(contentLength / 3500));
+        return Math.min(estimatedPages, MAX_PDF_PAGES);
+      }
+    }
+
+    // Fallback for .doc or if XML not found in .docx
+    // .doc files: estimate ~20KB per page (with formatting)
+    // More conservative than 50KB which was causing huge underestimation
+    const estimatedPages = Math.max(1, Math.ceil(buffer.length / 20000));
+    return Math.min(estimatedPages, MAX_PDF_PAGES);
+  } catch (error) {
+    // On error, use conservative file size estimate
+    const estimatedPages = Math.max(1, Math.ceil(buffer.length / 20000));
+    return Math.min(estimatedPages, MAX_PDF_PAGES);
+  }
 }
 
 // Validate file type
@@ -304,21 +356,35 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
           'Preparando para armazenar arquivo'
         );
 
-        // Extract page count
+        // Extract page count with detailed logging
         let pageCount = 1;
+        app.logger.info(
+          { userId, filename: finalFilename, mimeType: data.mimetype, size: buffer.length },
+          'Iniciando detecção de número de páginas'
+        );
+
         if (data.mimetype === 'application/pdf') {
           pageCount = extractPDFPageCount(buffer);
+          app.logger.info(
+            { userId, filename: finalFilename, detectedPages: pageCount, bufferSize: buffer.length },
+            'PDF page count detection completed'
+          );
         } else if (
           data.mimetype === 'application/msword' ||
           data.mimetype ===
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         ) {
-          pageCount = estimateWordPageCount(buffer.length);
+          pageCount = estimateWordPageCount(buffer, data.mimetype);
+          const docType = data.mimetype === 'application/msword' ? '.doc' : '.docx';
+          app.logger.info(
+            { userId, filename: finalFilename, docType, estimatedPages: pageCount, bufferSize: buffer.length },
+            `Word document (${docType}) page estimation completed`
+          );
         }
 
         app.logger.info(
-          { userId, filename: finalFilename, pageCount, size: buffer.length },
-          `Páginas detectadas: ${pageCount}`
+          { userId, filename: finalFilename, pageCount, size: buffer.length, mimeType: data.mimetype },
+          `Detecção concluída: ${pageCount} páginas identificadas`
         );
 
         // Upload with retries
@@ -548,16 +614,30 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
               const finalFilename = `${timestamp}-${sanitized}`;
               const key = `documents/${userId}/${finalFilename}`;
 
-              // Extract pages
+              // Extract pages with logging
               let pageCount = 1;
+              app.logger.info(
+                { userId, filename: fileData.filename, mimeType: fileData.mimetype, size: buffer.length },
+                'Iniciando detecção de página (múltiplo)'
+              );
+
               if (fileData.mimetype === 'application/pdf') {
                 pageCount = extractPDFPageCount(buffer);
+                app.logger.info(
+                  { userId, filename: fileData.filename, detectedPages: pageCount, bufferSize: buffer.length },
+                  'PDF page count detected in batch upload'
+                );
               } else if (
                 fileData.mimetype === 'application/msword' ||
                 fileData.mimetype ===
                   'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
               ) {
-                pageCount = estimateWordPageCount(buffer.length);
+                pageCount = estimateWordPageCount(buffer, fileData.mimetype);
+                const docType = fileData.mimetype === 'application/msword' ? '.doc' : '.docx';
+                app.logger.info(
+                  { userId, filename: fileData.filename, docType, estimatedPages: pageCount, bufferSize: buffer.length },
+                  `Word document (${docType}) page estimation in batch upload`
+                );
               }
 
               // Upload
