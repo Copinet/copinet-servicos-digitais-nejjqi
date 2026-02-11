@@ -28,6 +28,8 @@ export default function QuickPrintScreen() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [currentFileIndex, setCurrentFileIndex] = useState(0);
+  const [totalFiles, setTotalFiles] = useState(0);
   const [notes, setNotes] = useState('');
   const [totalPrice, setTotalPrice] = useState(0);
   const [pricing, setPricing] = useState<any>(null);
@@ -151,22 +153,18 @@ export default function QuickPrintScreen() {
   };
 
   const uploadFiles = async (assets: any[]) => {
+    if (assets.length === 0) {
+      return;
+    }
+
     setUploading(true);
     setUploadProgress(0);
+    setCurrentFileIndex(0);
+    setTotalFiles(assets.length);
     setUploadStatus('Preparando arquivos...');
     
     try {
-      const { uploadMultipleFilesToSupabase, isSupabaseConfigured, getErrorMessage } = await import('@/utils/api');
-      
-      // Check if Supabase is configured
-      if (!isSupabaseConfigured()) {
-        showError(
-          'Configuração Necessária',
-          'O Supabase não está configurado. Por favor, configure supabaseUrl e supabaseAnonKey no app.json para fazer upload de arquivos grandes.'
-        );
-        setUploading(false);
-        return;
-      }
+      const { uploadMultipleFiles, getErrorMessage } = await import('@/utils/api');
       
       const filesToUpload = assets.map(asset => ({
         uri: asset.uri,
@@ -174,21 +172,21 @@ export default function QuickPrintScreen() {
         type: asset.mimeType || 'application/octet-stream',
       }));
 
-      console.log('QuickPrintScreen: Uploading files directly to Supabase:', filesToUpload.length);
+      console.log('QuickPrintScreen: Uploading files via backend API:', filesToUpload.length);
       
-      const result = await uploadMultipleFilesToSupabase(
+      const result = await uploadMultipleFiles(
         filesToUpload,
-        'documents',
         (progress) => {
           setUploadProgress(progress);
           console.log('QuickPrintScreen: Overall progress:', progress + '%');
         },
         (fileIndex, fileName, status) => {
-          // Update status message based on file progress
+          setCurrentFileIndex(fileIndex + 1);
+          
           if (status === 'uploading') {
-            setUploadStatus(`Enviando ${fileName} diretamente para o Supabase...`);
+            setUploadStatus(`Enviando ${fileName}...`);
           } else if (status === 'processing') {
-            setUploadStatus(`Processando ${fileName}...`);
+            setUploadStatus(`Processando ${fileName}... (detectando páginas)`);
           } else if (status === 'complete') {
             setUploadStatus(`${fileName} concluído!`);
           } else if (status === 'failed') {
@@ -197,7 +195,7 @@ export default function QuickPrintScreen() {
         }
       );
 
-      console.log('QuickPrintScreen: Supabase upload complete:', result);
+      console.log('QuickPrintScreen: Upload complete:', result);
 
       // Add successfully uploaded files
       if (result.uploads.length > 0) {
@@ -214,7 +212,15 @@ export default function QuickPrintScreen() {
         }));
 
         setFiles(prev => [...prev, ...newFiles]);
-        setUploadStatus(`${result.uploads.length} arquivo(s) enviado(s) com sucesso para o Supabase!`);
+        
+        const successCount = result.uploads.length;
+        const totalCount = assets.length;
+        
+        if (successCount === totalCount) {
+          setUploadStatus(`✅ ${successCount} arquivo(s) enviado(s) com sucesso!`);
+        } else {
+          setUploadStatus(`✅ ${successCount} de ${totalCount} arquivo(s) enviado(s)`);
+        }
       }
 
       // Show errors for failed uploads
@@ -231,16 +237,19 @@ export default function QuickPrintScreen() {
 
       // Show success message if all uploaded
       if (result.uploads.length > 0 && result.failed.length === 0) {
-        console.log('QuickPrintScreen: All files uploaded successfully to Supabase');
+        console.log('QuickPrintScreen: All files uploaded successfully');
       }
     } catch (error) {
       console.error('QuickPrintScreen: Error uploading files:', error);
       const { getErrorMessage } = await import('@/utils/api');
-      showError('Erro no Upload', getErrorMessage('UPLOAD_FAILED'));
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      showError('Erro no Upload', getErrorMessage(undefined, errorMessage));
     } finally {
       setUploading(false);
       setUploadProgress(0);
       setUploadStatus('');
+      setCurrentFileIndex(0);
+      setTotalFiles(0);
     }
   };
 
@@ -288,7 +297,7 @@ export default function QuickPrintScreen() {
         },
       };
 
-      console.log('QuickPrintScreen: Creating print job with Supabase URLs:', printJob);
+      console.log('QuickPrintScreen: Creating print job:', printJob);
       const response = await authenticatedPost('/api/print-jobs', printJob);
       console.log('QuickPrintScreen: Print job created:', response);
 
@@ -315,6 +324,8 @@ export default function QuickPrintScreen() {
     return sum + (pages * f.copies);
   }, 0);
 
+  const progressText = totalFiles > 0 ? `${currentFileIndex}/${totalFiles}` : '';
+
   return (
     <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
       <Stack.Screen 
@@ -338,7 +349,7 @@ export default function QuickPrintScreen() {
               Faça upload de documentos PDF, Word ou imagens e escolha as opções de impressão
             </Text>
             <Text style={styles.headerNote}>
-              ✨ Upload direto para o Supabase - suporta arquivos até 50MB
+              ✨ Suporta arquivos até 150MB • Detecção automática de páginas
             </Text>
           </View>
 
@@ -381,13 +392,16 @@ export default function QuickPrintScreen() {
               <View style={styles.uploadingIndicator}>
                 <ActivityIndicator size="large" color={colors.secondary} />
                 <Text style={styles.uploadingText}>{uploadStatus}</Text>
+                {progressText && (
+                  <Text style={styles.uploadingProgress}>Arquivo {progressText}</Text>
+                )}
                 {uploadProgress > 0 && (
                   <View style={styles.progressBarContainer}>
                     <View style={[styles.progressBar, { width: `${uploadProgress}%` }]} />
                   </View>
                 )}
                 <Text style={styles.uploadingSubtext}>
-                  {uploadProgress}% - Upload direto para o Supabase Storage
+                  {uploadProgress}% concluído
                 </Text>
               </View>
             )}
@@ -646,6 +660,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: colors.text,
+    textAlign: 'center',
+  },
+  uploadingProgress: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.secondary,
     textAlign: 'center',
   },
   uploadingSubtext: {
