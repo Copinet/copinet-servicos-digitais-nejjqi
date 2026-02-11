@@ -184,13 +184,13 @@ export default function QuickPrintScreen() {
           setCurrentFileIndex(fileIndex + 1);
           
           if (status === 'uploading') {
-            setUploadStatus(`Enviando ${fileName}...`);
+            setUploadStatus(`📤 Enviando ${fileName}...`);
           } else if (status === 'processing') {
-            setUploadStatus(`Processando ${fileName}... (detectando páginas)`);
+            setUploadStatus(`🔍 Detectando páginas de ${fileName}...`);
           } else if (status === 'complete') {
-            setUploadStatus(`${fileName} concluído!`);
+            setUploadStatus(`✅ ${fileName} concluído!`);
           } else if (status === 'failed') {
-            setUploadStatus(`Erro em ${fileName}`);
+            setUploadStatus(`❌ Erro em ${fileName}`);
           }
         }
       );
@@ -351,6 +351,17 @@ export default function QuickPrintScreen() {
             <Text style={styles.headerNote}>
               ✨ Suporta arquivos até 150MB • Detecção automática de páginas
             </Text>
+            <View style={styles.improvementBanner}>
+              <IconSymbol 
+                ios_icon_name="checkmark.circle.fill" 
+                android_material_icon_name="check-circle" 
+                size={20} 
+                color="#4CAF50" 
+              />
+              <Text style={styles.improvementBannerText}>
+                Detecção de páginas melhorada! Agora conta páginas com precisão em PDFs e Word.
+              </Text>
+            </View>
           </View>
 
           <View style={styles.uploadSection}>
@@ -412,7 +423,13 @@ export default function QuickPrintScreen() {
               <View style={styles.filesSection}>
                 <Text style={styles.sectionTitle}>Arquivos Adicionados</Text>
                 
-                {files.map((file, index) => (
+                {files.map((file, index) => {
+                  const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
+                  const isPDF = fileExtension === 'pdf';
+                  const isWord = fileExtension === 'doc' || fileExtension === 'docx';
+                  const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(fileExtension);
+                  
+                  return (
                   <View key={index} style={styles.fileCard}>
                     <View style={styles.fileHeader}>
                       <View style={styles.fileInfo}>
@@ -424,7 +441,29 @@ export default function QuickPrintScreen() {
                         />
                         <View style={styles.fileDetails}>
                           <Text style={styles.fileName}>{file.name}</Text>
-                          <Text style={styles.filePages}>{file.pageCount} página(s)</Text>
+                          <View style={styles.pageCountRow}>
+                            <Text style={styles.filePages}>{file.pageCount} página(s) detectada(s)</Text>
+                            {isPDF && (
+                              <View style={styles.detectionBadge}>
+                                <Text style={styles.detectionBadgeText}>PDF</Text>
+                              </View>
+                            )}
+                            {isWord && (
+                              <View style={[styles.detectionBadge, styles.detectionBadgeWarning]}>
+                                <Text style={styles.detectionBadgeText}>Word (estimado)</Text>
+                              </View>
+                            )}
+                            {isImage && (
+                              <View style={styles.detectionBadge}>
+                                <Text style={styles.detectionBadgeText}>Imagem</Text>
+                              </View>
+                            )}
+                          </View>
+                          {isWord && (
+                            <Text style={styles.pageCountNote}>
+                              ⚠️ Contagem estimada. Verifique se está correto.
+                            </Text>
+                          )}
                         </View>
                       </View>
                       <TouchableOpacity onPress={() => removeFile(index)}>
@@ -436,6 +475,50 @@ export default function QuickPrintScreen() {
                         />
                       </TouchableOpacity>
                     </View>
+
+                    {(isPDF || isWord) && file.pageCount > 1 && (
+                      <View style={styles.pageCountAdjustment}>
+                        <Text style={styles.pageCountAdjustmentLabel}>
+                          Contagem incorreta? Ajuste manualmente:
+                        </Text>
+                        <View style={styles.pageCountControl}>
+                          <TouchableOpacity 
+                            style={styles.pageCountButton}
+                            onPress={() => updateFileOption(index, 'pageCount', Math.max(1, file.pageCount - 1))}
+                          >
+                            <IconSymbol 
+                              ios_icon_name="minus" 
+                              android_material_icon_name="remove" 
+                              size={18} 
+                              color={colors.secondary} 
+                            />
+                          </TouchableOpacity>
+                          <TextInput
+                            style={styles.pageCountInput}
+                            value={String(file.pageCount)}
+                            onChangeText={(text) => {
+                              const num = parseInt(text);
+                              if (!isNaN(num) && num > 0) {
+                                updateFileOption(index, 'pageCount', num);
+                              }
+                            }}
+                            keyboardType="number-pad"
+                            selectTextOnFocus
+                          />
+                          <TouchableOpacity 
+                            style={styles.pageCountButton}
+                            onPress={() => updateFileOption(index, 'pageCount', file.pageCount + 1)}
+                          >
+                            <IconSymbol 
+                              ios_icon_name="plus" 
+                              android_material_icon_name="add" 
+                              size={18} 
+                              color={colors.secondary} 
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
 
                     <View style={styles.fileOptions}>
                       <View style={styles.optionRow}>
@@ -503,7 +586,8 @@ export default function QuickPrintScreen() {
                       )}
                     </View>
                   </View>
-                ))}
+                  );
+                })}
               </View>
 
               <View style={styles.notesSection}>
@@ -613,6 +697,24 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontWeight: '600',
   },
+  improvementBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4CAF50' + '15',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#4CAF50' + '30',
+  },
+  improvementBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#4CAF50',
+    fontWeight: '600',
+    lineHeight: 18,
+  },
   uploadSection: {
     marginBottom: 24,
   },
@@ -718,6 +820,76 @@ const styles = StyleSheet.create({
   filePages: {
     fontSize: 13,
     color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  pageCountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  detectionBadge: {
+    backgroundColor: colors.secondary + '20',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  detectionBadgeWarning: {
+    backgroundColor: '#FFA500' + '20',
+  },
+  detectionBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.secondary,
+    textTransform: 'uppercase',
+  },
+  pageCountNote: {
+    fontSize: 11,
+    color: '#FFA500',
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  pageCountAdjustment: {
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  pageCountAdjustmentLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  pageCountControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  pageCountButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pageCountInput: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    textAlign: 'center',
+    minWidth: 60,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   fileOptions: {
     gap: 12,
