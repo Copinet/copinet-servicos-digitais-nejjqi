@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,12 +13,7 @@ export default function HomeScreen() {
   const [services, setServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    console.log('HomeScreen: Loading services, user authenticated:', !!user);
-    loadServices();
-  }, []);
-
-  const loadServices = async () => {
+  const loadServices = useCallback(async () => {
     try {
       console.log('[HomeScreen] Fetching services from API...');
       const { apiGet } = await import('@/utils/api');
@@ -38,7 +33,12 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    console.log('HomeScreen: Loading services, user authenticated:', !!user);
+    loadServices();
+  }, [loadServices]);
 
   const handleServicePress = (serviceName: string) => {
     console.log('[HomeScreen] Service pressed:', serviceName);
