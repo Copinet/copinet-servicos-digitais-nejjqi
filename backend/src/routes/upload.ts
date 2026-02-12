@@ -21,10 +21,10 @@ interface MultipleUploadResponse {
   failed: Array<{ filename: string; error: string; code: string }>;
 }
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-const MAX_PDF_PAGES = 1500;
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_PDF_PAGES = 2000;
 const MAX_FILENAME_LENGTH = 200;
-const UPLOAD_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const UPLOAD_TIMEOUT = 3 * 60 * 1000; // 3 minutes
 const ALLOWED_TYPES = [
   'application/pdf',
   'image/jpeg',
@@ -367,7 +367,7 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
             );
             return reply.status(413).send({
               success: false,
-              error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo permitido: 50MB. Por favor, reduza o tamanho do arquivo ou envie em partes.`,
+              error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo permitido: 100MB. Por favor, reduza o tamanho do arquivo ou envie em partes.`,
               code: 'FILE_TOO_LARGE',
             } as ErrorResponse);
           }
@@ -376,9 +376,10 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
         }
 
         const buffer = Buffer.concat(chunks);
+        const fileSizeMB = (buffer.length / 1024 / 1024).toFixed(2);
         app.logger.info(
-          { userId, size: buffer.length, chunks: chunks.length },
-          'Buffer criado'
+          { userId, size: buffer.length, chunks: chunks.length, fileSizeMB },
+          `Buffer criado: ${fileSizeMB}MB em ${chunks.length} chunks`
         );
 
         // Sanitize filename
@@ -474,9 +475,17 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
         // Get signed URL
         const { url } = await app.storage.getSignedUrl(uploadedKey);
 
+        const uploadedSizeMB = (buffer.length / 1024 / 1024).toFixed(2);
         app.logger.info(
-          { userId, filename: finalFilename, pageCount },
-          'Upload concluído'
+          {
+            userId,
+            filename: finalFilename,
+            pageCount,
+            uploadedSize: buffer.length,
+            uploadedSizeMB,
+            mimeType: data.mimetype
+          },
+          `Upload concluído: ${uploadedSizeMB}MB - Contagem de páginas do backend: ${pageCount} páginas para arquivo ${data.filename}`
         );
 
         clearTimeout(timeoutId);
@@ -640,7 +649,7 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
                   );
                   failedFiles.push({
                     filename: fileData.filename,
-                    error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo: 50MB`,
+                    error: `Arquivo muito grande (${(totalSize / 1024 / 1024).toFixed(1)}MB). Máximo: 100MB`,
                     code: 'FILE_TOO_LARGE',
                   });
                   return;
