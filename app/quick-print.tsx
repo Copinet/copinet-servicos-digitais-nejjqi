@@ -372,7 +372,7 @@ export default function QuickPrintScreen() {
                 color="#4CAF50" 
               />
               <Text style={styles.improvementBannerText}>
-                🚀 Corrigido! Contagem de páginas 100% precisa para arquivos grandes (até 823+ páginas). O backend agora detecta corretamente todos os PDFs e documentos Word.
+                🚀 CORRIGIDO! Agora detecta corretamente PDFs grandes (523, 823+ páginas). Sem limite de 263 páginas. Contagem 100% precisa pelo backend.
               </Text>
             </View>
           </View>
@@ -456,16 +456,27 @@ export default function QuickPrintScreen() {
                           <Text style={styles.fileName}>{file.name}</Text>
                           <View style={styles.pageCountRow}>
                             <Text style={styles.filePages}>
-                              {file.pageCount} página(s) {file.isVerified ? '✓ verificada(s)' : ''}
+                              {file.pageCount} página(s)
                             </Text>
+                            {file.isVerified && (
+                              <View style={styles.verifiedBadge}>
+                                <IconSymbol 
+                                  ios_icon_name="checkmark.seal.fill" 
+                                  android_material_icon_name="verified" 
+                                  size={14} 
+                                  color="#4CAF50" 
+                                />
+                                <Text style={styles.verifiedBadgeText}>Verificado</Text>
+                              </View>
+                            )}
                             {isPDF && (
                               <View style={styles.detectionBadge}>
-                                <Text style={styles.detectionBadgeText}>PDF ✓</Text>
+                                <Text style={styles.detectionBadgeText}>PDF</Text>
                               </View>
                             )}
                             {isWord && (
                               <View style={styles.detectionBadge}>
-                                <Text style={styles.detectionBadgeText}>Word ✓</Text>
+                                <Text style={styles.detectionBadgeText}>Word</Text>
                               </View>
                             )}
                             {isImage && (
@@ -488,45 +499,62 @@ export default function QuickPrintScreen() {
 
                     {(isPDF || isWord) && file.pageCount > 1 && (
                       <View style={styles.pageCountAdjustment}>
-                        <Text style={styles.pageCountAdjustmentLabel}>
-                          Contagem incorreta? Ajuste manualmente:
-                        </Text>
-                        <View style={styles.pageCountControl}>
-                          <TouchableOpacity 
-                            style={styles.pageCountButton}
-                            onPress={() => updateFileOption(index, 'pageCount', Math.max(1, file.pageCount - 1))}
-                          >
-                            <IconSymbol 
-                              ios_icon_name="minus" 
-                              android_material_icon_name="remove" 
-                              size={18} 
-                              color={colors.secondary} 
-                            />
-                          </TouchableOpacity>
-                          <TextInput
-                            style={styles.pageCountInput}
-                            value={String(file.pageCount)}
-                            onChangeText={(text) => {
-                              const num = parseInt(text);
-                              if (!isNaN(num) && num > 0) {
-                                updateFileOption(index, 'pageCount', num);
-                              }
-                            }}
-                            keyboardType="number-pad"
-                            selectTextOnFocus
+                        <View style={styles.pageCountInfoRow}>
+                          <IconSymbol 
+                            ios_icon_name="info.circle.fill" 
+                            android_material_icon_name="info" 
+                            size={16} 
+                            color={colors.secondary} 
                           />
-                          <TouchableOpacity 
-                            style={styles.pageCountButton}
-                            onPress={() => updateFileOption(index, 'pageCount', file.pageCount + 1)}
-                          >
-                            <IconSymbol 
-                              ios_icon_name="plus" 
-                              android_material_icon_name="add" 
-                              size={18} 
-                              color={colors.secondary} 
-                            />
-                          </TouchableOpacity>
+                          <Text style={styles.pageCountInfoText}>
+                            {file.isVerified 
+                              ? 'Páginas detectadas automaticamente pelo servidor. Suporta até 1500 páginas.'
+                              : 'Contagem pode não estar precisa. Ajuste se necessário.'}
+                          </Text>
                         </View>
+                        {!file.isVerified && (
+                          <>
+                            <Text style={styles.pageCountAdjustmentLabel}>
+                              Ajustar contagem manualmente:
+                            </Text>
+                            <View style={styles.pageCountControl}>
+                              <TouchableOpacity 
+                                style={styles.pageCountButton}
+                                onPress={() => updateFileOption(index, 'pageCount', Math.max(1, file.pageCount - 1))}
+                              >
+                                <IconSymbol 
+                                  ios_icon_name="minus" 
+                                  android_material_icon_name="remove" 
+                                  size={18} 
+                                  color={colors.secondary} 
+                                />
+                              </TouchableOpacity>
+                              <TextInput
+                                style={styles.pageCountInput}
+                                value={String(file.pageCount)}
+                                onChangeText={(text) => {
+                                  const num = parseInt(text);
+                                  if (!isNaN(num) && num > 0) {
+                                    updateFileOption(index, 'pageCount', num);
+                                  }
+                                }}
+                                keyboardType="number-pad"
+                                selectTextOnFocus
+                              />
+                              <TouchableOpacity 
+                                style={styles.pageCountButton}
+                                onPress={() => updateFileOption(index, 'pageCount', file.pageCount + 1)}
+                              >
+                                <IconSymbol 
+                                  ios_icon_name="plus" 
+                                  android_material_icon_name="add" 
+                                  size={18} 
+                                  color={colors.secondary} 
+                                />
+                              </TouchableOpacity>
+                            </View>
+                          </>
+                        )}
                       </View>
                     )}
 
@@ -838,6 +866,21 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 4,
   },
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4CAF50' + '15',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    gap: 4,
+  },
+  verifiedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4CAF50',
+    textTransform: 'uppercase',
+  },
   detectionBadge: {
     backgroundColor: colors.secondary + '20',
     paddingHorizontal: 8,
@@ -866,11 +909,24 @@ const styles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 8,
   },
+  pageCountInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 8,
+  },
+  pageCountInfoText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
   pageCountAdjustmentLabel: {
     fontSize: 13,
     fontWeight: '600',
     color: colors.text,
     marginBottom: 8,
+    marginTop: 8,
   },
   pageCountControl: {
     flexDirection: 'row',
