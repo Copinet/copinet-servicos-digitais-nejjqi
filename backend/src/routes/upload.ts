@@ -51,78 +51,114 @@ function sanitizeFilename(filename: string): string {
   return sanitized;
 }
 
-// Extract PDF page count - Improved parsing with better metadata extraction
+// Extract PDF page count - Robust parsing with multiple strategies
 function extractPDFPageCount(buffer: Buffer): number {
   try {
+    // Convert to string using latin1 encoding (preserves binary data as-is)
     const content = buffer.toString('latin1');
     let detectedPages = 0;
-    let method = 'none';
 
-    // Strategy 1: Find /Count in /Pages object (most reliable - standard PDF structure)
-    // This is the official way PDF stores page count in the catalog
-    const countMatch = content.match(/\/Pages\s+(\d+)\s+0\s+R/);
-    if (countMatch) {
-      const pageRefNum = parseInt(countMatch[1], 10);
-      const pageObjRegex = new RegExp(`${pageRefNum}\\s+0\\s+obj[\\s\\S]*?\/Count\\s+(\\d+)`);
-      const pageObjMatch = content.match(pageObjRegex);
-      if (pageObjMatch) {
-        detectedPages = parseInt(pageObjMatch[1], 10);
-        method = 'pdf-catalog-count';
-        if (detectedPages > 0 && detectedPages <= MAX_PDF_PAGES) {
-          return detectedPages;
+    // Strategy 1: Find Catalog /Pages object and get /Count (MOST RELIABLE)
+    // PDFs have a Catalog object that points to the Pages tree root
+    // The root Pages object contains /Count with total page count
+    const catalogMatch = content.match(/\/Type\s*\/Catalog[\s\S]*?\/Pages\s+(\d+)\s+0\s+R/);
+    if (catalogMatch) {
+      const pageTreeObjNum = parseInt(catalogMatch[1], 10);
+      // Find the Pages object and extract its /Count
+      const pageTreeRegex = new RegExp(
+        pageTreeObjNum + '\\s+0\\s+obj[\\s\\S]*?/Type\\s*/Pages[\\s\\S]*?/Count\\s+(\\d+)',
+        'i'
+      );
+      const pageTreeMatch = content.match(pageTreeRegex);
+      if (pageTreeMatch) {
+        detectedPages = parseInt(pageTreeMatch[1], 10);
+        if (detectedPages > 0) {
+          return Math.min(detectedPages, MAX_PDF_PAGES);
         }
       }
     }
 
-    // Strategy 2: Direct /Count in Pages dictionary (alternative PDF structure)
-    const directCountMatch = content.match(/\/Type\s+\/Pages[^>]*?\/Count\s+(\d+)/);
-    if (directCountMatch) {
-      detectedPages = parseInt(directCountMatch[1], 10);
-      method = 'pdf-direct-count';
-      if (detectedPages > 0 && detectedPages <= MAX_PDF_PAGES) {
-        return detectedPages;
+    // Strategy 2: Find /Pages object directly with /Count (handles simpler PDFs)
+    // Some PDFs have inline /Pages with /Count instead of indirect reference
+    const directPagesMatch = content.match(/\/Type\s*\/Pages[\s\S]{0,500}?\/Count\s+(\d+)/i);
+    if (directPagesMatch) {
+      detectedPages = parseInt(directPagesMatch[1], 10);
+      if (detectedPages > 0) {
+        return Math.min(detectedPages, MAX_PDF_PAGES);
       }
     }
 
-    // Strategy 3: Count actual page objects (/Type /Page)
-    // More reliable than other estimates for complex PDFs
-    const pageObjRegex = /\/Type\s+\/Page\s+(?!s)(?=\/)/g;
-    const pageMatches = content.match(pageObjRegex);
-    if (pageMatches && pageMatches.length > 0) {
-      detectedPages = pageMatches.length;
-      method = 'pdf-page-objects';
-      if (detectedPages > 0 && detectedPages <= MAX_PDF_PAGES) {
-        return detectedPages;
+    // Strategy 3: Count all /Type /Page objects (actual page dictionaries)
+    // Each page in PDF is an object with /Type /Page
+    // This method counts actual page objects, more reliable than Kids arrays for some PDFs
+    const pageObjMatches = content.match(/\/Type\s*\/Page(?!s)\s*[\n\r\s]/gi);
+    if (pageObjMatches && pageObjMatches.length > 0) {
+      detectedPages = pageObjMatches.length;
+      if (detectedPages > 0) {
+        return Math.min(detectedPages, MAX_PDF_PAGES);
       }
     }
 
-    // Strategy 4: Look for page tree structure with Kids array
-    const kidsMatch = content.match(/\/Kids\s*\[\s*([\d\s\w\nR]+)\s*\]/g);
-    if (kidsMatch) {
-      // Count the references (each "n 0 R" is a page reference)
-      const allKids = kidsMatch.join(' ');
-      const refMatches = allKids.match(/(\d+)\s+0\s+R/g);
-      if (refMatches) {
-        detectedPages = refMatches.length;
-        method = 'pdf-kids-array';
-        if (detectedPages > 0 && detectedPages <= MAX_PDF_PAGES) {
-          return detectedPages;
+    // Strategy 4: Count /Kids array references in page tree
+    // The /Kids array in /Pages objects contains references to all pages
+    // Look for all /Kids arrays and count the indirect references (n 0 R)
+    const kidsMatches = content.match(/\/Kids\s*\[\s*([^\]]+)\s*\]/gi);
+    if (kidsMatches) {
+      let totalKidsRefs = 0;
+      for (const kidsArray of kidsMatches) {
+        // Extract all indirect object references (n 0 R format)
+        const refMatches = kidsArray.match(/(\d+)\s+0\s+R/g);
+        if (refMatches) {
+          totalKidsRefs += refMatches.length;
         }
       }
+      if (totalKidsRefs > 0) {
+        return Math.min(totalKidsRefs, MAX_PDF_PAGES);
+      }
     }
 
-    // Strategy 5: Conservative estimate based on file size
-    // PDFs average 3KB-5KB per page (with compression)
-    if (buffer.length > 0) {
-      detectedPages = Math.max(1, Math.ceil(buffer.length / 4000));
-      method = 'pdf-filesize-estimate';
-      detectedPages = Math.min(detectedPages, MAX_PDF_PAGES);
-      return detectedPages;
+    // Strategy 5: Look for /Pages references and count all pages they reference
+    // Some PDFs have multiple /Pages objects in a tree structure
+    // Find all /Pages objects and sum their /Count values
+    const allPagesMatches = content.match(/\/Type\s*\/Pages[\s\S]{0,1000}?\/Count\s+(\d+)/gi);
+    if (allPagesMatches) {
+      let totalPages = 0;
+      for (const pageMatch of allPagesMatches) {
+        const countMatch = pageMatch.match(/\/Count\s+(\d+)/i);
+        if (countMatch) {
+          totalPages += parseInt(countMatch[1], 10);
+        }
+      }
+      if (totalPages > 0) {
+        // Return the maximum (root usually has full count, this validates)
+        return Math.min(totalPages, MAX_PDF_PAGES);
+      }
     }
 
-    // Fallback: 1 page
+    // Strategy 6: Last resort - look for stream count patterns
+    // Some PDFs encode page information in stream objects
+    const streamMatches = content.match(/stream[\s\S]*?endstream/g);
+    if (streamMatches && streamMatches.length > 10) {
+      // If we have many streams, estimate roughly (streams ~2 per page)
+      const estimatedPages = Math.ceil(streamMatches.length / 2.5);
+      if (estimatedPages > 0) {
+        return Math.min(estimatedPages, MAX_PDF_PAGES);
+      }
+    }
+
+    // Strategy 7: File size estimation only as last resort
+    // Average PDF: 3-5KB per page when compressed
+    if (buffer.length > 5000) {
+      const estimatedPages = Math.ceil(buffer.length / 4000);
+      if (estimatedPages > 0) {
+        return Math.min(estimatedPages, MAX_PDF_PAGES);
+      }
+    }
+
+    // Fallback: assume 1 page if nothing else works
     return 1;
   } catch (error) {
+    // On any error, return 1 page minimum
     return 1;
   }
 }
@@ -366,8 +402,14 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
         if (data.mimetype === 'application/pdf') {
           pageCount = extractPDFPageCount(buffer);
           app.logger.info(
-            { userId, filename: finalFilename, detectedPages: pageCount, bufferSize: buffer.length },
-            'PDF page count detection completed'
+            {
+              userId,
+              filename: finalFilename,
+              detectedPages: pageCount,
+              bufferSize: buffer.length,
+              fileSizeMB: (buffer.length / 1024 / 1024).toFixed(2)
+            },
+            `PDF page count detection completed: ${pageCount} pages detected`
           );
         } else if (
           data.mimetype === 'application/msword' ||
@@ -624,8 +666,14 @@ export function registerUploadRoutes(app: App, fastify: FastifyInstance) {
               if (fileData.mimetype === 'application/pdf') {
                 pageCount = extractPDFPageCount(buffer);
                 app.logger.info(
-                  { userId, filename: fileData.filename, detectedPages: pageCount, bufferSize: buffer.length },
-                  'PDF page count detected in batch upload'
+                  {
+                    userId,
+                    filename: fileData.filename,
+                    detectedPages: pageCount,
+                    bufferSize: buffer.length,
+                    fileSizeMB: (buffer.length / 1024 / 1024).toFixed(2)
+                  },
+                  `PDF page count detected in batch upload: ${pageCount} pages`
                 );
               } else if (
                 fileData.mimetype === 'application/msword' ||
