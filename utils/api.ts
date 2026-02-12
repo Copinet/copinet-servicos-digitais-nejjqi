@@ -100,7 +100,7 @@ export const apiCall = async <T = any>(
       
       // Special handling for specific error codes
       if (response.status === 413) {
-        throw new Error('Arquivo muito grande. O servidor aceita no máximo 50MB por arquivo.');
+        throw new Error('Arquivo muito grande. O servidor aceita no máximo 100MB por arquivo.');
       }
       
       if (response.status === 404) {
@@ -286,9 +286,10 @@ const sanitizeFilename = (filename: string): string => {
 
 /**
  * Upload a single file via backend API
+ * Optionally accepts localPageCount to override backend counting
  */
 export const uploadFile = async (
-  file: { uri: string; name: string; type: string },
+  file: { uri: string; name: string; type: string; localPageCount?: number },
   onProgress?: (progress: number) => void,
   retries: number = 3
 ): Promise<{
@@ -335,6 +336,12 @@ export const uploadFile = async (
       };
       
       formData.append('file', fileObj);
+      
+      // If localPageCount is provided, send it to backend (backend will use it instead of recounting)
+      if (file.localPageCount !== undefined && file.localPageCount > 0) {
+        formData.append('localPageCount', String(file.localPageCount));
+        console.log(`[API] Sending LOCAL page count to backend: ${file.localPageCount} for ${sanitizedName}`);
+      }
 
       console.log(`[API] Upload attempt ${attempt}/${retries} for:`, sanitizedName);
 
@@ -343,9 +350,9 @@ export const uploadFile = async (
         onProgress(10);
       }
 
-      // Create AbortController for timeout (60 seconds for large files)
+      // Create AbortController for timeout (120 seconds for large files up to 100MB)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       let response;
       try {
@@ -378,7 +385,7 @@ export const uploadFile = async (
         if (response.status === 413 || text.toLowerCase().includes('payload') || text.toLowerCase().includes('too large')) {
           return {
             success: false,
-            error: 'Arquivo muito grande. O servidor aceita no máximo 50MB por arquivo.',
+            error: 'Arquivo muito grande. O servidor aceita no máximo 100MB por arquivo.',
             code: 'PAYLOAD_TOO_LARGE',
           };
         }
@@ -396,7 +403,7 @@ export const uploadFile = async (
         if (response.status === 413) {
           return {
             success: false,
-            error: 'Arquivo muito grande. O servidor aceita no máximo 50MB por arquivo.',
+            error: 'Arquivo muito grande. O servidor aceita no máximo 100MB por arquivo.',
             code: 'PAYLOAD_TOO_LARGE',
           };
         }
@@ -435,7 +442,7 @@ export const uploadFile = async (
       if (error.name === 'AbortError') {
         return {
           success: false,
-          error: 'Upload excedeu o tempo limite. Tente com um arquivo menor.',
+          error: 'Upload excedeu o tempo limite (120s). Tente com um arquivo menor.',
           code: 'UPLOAD_TIMEOUT',
         };
       }
@@ -462,25 +469,108 @@ export const uploadFile = async (
 };
 
 /**
- * Upload multiple files via backend API (ONE BY ONE)
+ * Upload multiple files with LOCAL page count (ONE BY ONE)
+ * The frontend provides the page count, backend just stores the file
  */
-export const uploadMultipleFiles = async (
-  files: Array<{ uri: string; name: string; type: string }>,
+export const uploadMultipleFilesWithPageCount = async (
+  files: { uri: string; name: string; type: string; localPageCount: number }[],
   onProgress?: (progress: number) => void,
-  onFileProgress?: (fileIndex: number, fileName: string, status: 'uploading' | 'processing' | 'complete' | 'failed') => void
+  onFileProgress?: (fileIndex: number, fileName: string, status: 'uploading' | 'complete' | 'failed') => void
 ): Promise<{
-  uploads: Array<{
+  uploads: {
     url: string;
     filename: string;
     size: number;
     mimeType: string;
     pageCount: number;
-  }>;
-  failed: Array<{
+  }[];
+  failed: {
     filename: string;
     error: string;
     code?: string;
-  }>;
+  }[];
+}> => {
+  if (!isBackendConfigured()) {
+    throw new Error("Backend URL not configured. Please rebuild the app.");
+  }
+
+  console.log('[API] Uploading multiple files with LOCAL page counts (ONE BY ONE):', files.length);
+
+  const uploads: any[] = [];
+  const failed: any[] = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    
+    console.log(`[API] Uploading file ${i + 1}/${files.length}:`, file.name, `(Local count: ${file.localPageCount} páginas)`);
+    
+    if (onFileProgress) {
+      onFileProgress(i, file.name, 'uploading');
+    }
+    
+    const result = await uploadFile(file);
+    
+    if (result.success && result.url) {
+      // Use LOCAL page count, ignore backend count
+      uploads.push({
+        url: result.url,
+        filename: result.filename || file.name,
+        size: result.size || 0,
+        mimeType: result.mimeType || file.type,
+        pageCount: file.localPageCount, // PRIORIDADE: Contagem local do frontend
+      });
+      
+      if (onFileProgress) {
+        onFileProgress(i, file.name, 'complete');
+      }
+      
+      console.log(`✅ File ${i + 1}/${files.length} uploaded successfully:`, file.name, `(Using LOCAL count: ${file.localPageCount} páginas)`);
+    } else {
+      failed.push({
+        filename: file.name,
+        error: result.error || 'Upload falhou',
+        code: result.code,
+      });
+      
+      if (onFileProgress) {
+        onFileProgress(i, file.name, 'failed');
+      }
+      
+      console.error(`❌ File ${i + 1}/${files.length} failed:`, file.name, result.error);
+    }
+    
+    if (onProgress) {
+      const overallProgress = Math.round(((i + 1) / files.length) * 100);
+      onProgress(overallProgress);
+      console.log(`[API] Overall progress: ${overallProgress}% (${i + 1}/${files.length})`);
+    }
+  }
+
+  console.log('[API] Sequential upload complete with LOCAL page counts:', { uploads: uploads.length, failed: failed.length });
+  return { uploads, failed };
+};
+
+/**
+ * Upload multiple files via backend API (ONE BY ONE)
+ * LEGACY: Backend counts pages (may be inaccurate for large files)
+ */
+export const uploadMultipleFiles = async (
+  files: { uri: string; name: string; type: string }[],
+  onProgress?: (progress: number) => void,
+  onFileProgress?: (fileIndex: number, fileName: string, status: 'uploading' | 'processing' | 'complete' | 'failed') => void
+): Promise<{
+  uploads: {
+    url: string;
+    filename: string;
+    size: number;
+    mimeType: string;
+    pageCount: number;
+  }[];
+  failed: {
+    filename: string;
+    error: string;
+    code?: string;
+  }[];
 }> => {
   if (!isBackendConfigured()) {
     throw new Error("Backend URL not configured. Please rebuild the app.");
@@ -550,12 +640,12 @@ export const uploadMultipleFiles = async (
  */
 export const getErrorMessage = (code?: string, defaultMessage?: string): string => {
   const errorMessages: Record<string, string> = {
-    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 50MB por arquivo.',
-    'PAYLOAD_TOO_LARGE': 'Arquivo muito grande. O servidor aceita no máximo 50MB por arquivo.',
-    'TOO_MANY_PAGES': 'PDF com muitas páginas. O máximo é 1500 páginas.',
+    'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 100MB por arquivo.',
+    'PAYLOAD_TOO_LARGE': 'Arquivo muito grande. O servidor aceita no máximo 100MB por arquivo.',
+    'TOO_MANY_PAGES': 'PDF com muitas páginas. O máximo é 2000 páginas.',
     'INVALID_FORMAT': 'Formato de arquivo inválido. Use PDF, Word, ou imagens (JPG, PNG).',
     'PROCESSING_FAILED': 'Não foi possível processar o arquivo. Tente novamente.',
-    'TIMEOUT': 'O processamento demorou muito (máx. 60 segundos). Tente com um arquivo menor.',
+    'TIMEOUT': 'O processamento demorou muito (máx. 120 segundos). Tente com um arquivo menor.',
     'NETWORK_ERROR': 'Erro de conexão. Verifique sua internet e tente novamente.',
     'UPLOAD_FAILED': 'Falha no upload. Tente novamente.',
     'UNAUTHORIZED': 'Você precisa fazer login para continuar.',
@@ -564,7 +654,7 @@ export const getErrorMessage = (code?: string, defaultMessage?: string): string 
     'STORAGE_ERROR': 'Erro ao salvar arquivo. Tente novamente.',
     'NO_FILE': 'Nenhum arquivo foi selecionado.',
     'MAX_RETRIES_EXCEEDED': 'Upload falhou após múltiplas tentativas. Verifique sua conexão.',
-    'UPLOAD_TIMEOUT': 'Upload excedeu o tempo limite. Tente com um arquivo menor.',
+    'UPLOAD_TIMEOUT': 'Upload excedeu o tempo limite (120s). Tente com um arquivo menor.',
     'TOO_MANY_FILES': 'Máximo de 10 arquivos por vez.',
     'INVALID_RESPONSE': 'Resposta inválida do servidor. Tente novamente.',
     'PARTNER_NOT_FOUND': 'Erro ao conectar com a loja. Parceiro não encontrado.',
