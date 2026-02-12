@@ -5,6 +5,7 @@ import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '@/styles/commonStyles';
 import { IconSymbol } from '@/components/IconSymbol';
+import { useAuth } from '@/contexts/AuthContext';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -26,6 +27,7 @@ interface UploadedFile {
 export default function QuickPrintScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { user } = useAuth();
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -37,6 +39,7 @@ export default function QuickPrintScreen() {
   const [totalPrice, setTotalPrice] = useState(0);
   const [pricing, setPricing] = useState<any>(null);
   const [errorModal, setErrorModal] = useState({ visible: false, title: '', message: '' });
+  const [loginModal, setLoginModal] = useState({ visible: false, message: '' });
 
   useEffect(() => {
     console.log('QuickPrintScreen: Loading pricing');
@@ -152,8 +155,18 @@ export default function QuickPrintScreen() {
   };
 
   const handlePickDocument = async () => {
+    // Verificar autenticação ANTES de permitir upload
+    if (!user) {
+      console.log('QuickPrintScreen: User not authenticated, showing login modal');
+      setLoginModal({
+        visible: true,
+        message: 'Você precisa fazer login para fazer upload de arquivos e criar pedidos.',
+      });
+      return;
+    }
+
     try {
-      console.log('QuickPrintScreen: Picking document');
+      console.log('QuickPrintScreen: User authenticated, picking document');
       const result = await DocumentPicker.getDocumentAsync({
         type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/*'],
         multiple: true,
@@ -171,8 +184,18 @@ export default function QuickPrintScreen() {
   };
 
   const handlePickImage = async () => {
+    // Verificar autenticação ANTES de permitir upload
+    if (!user) {
+      console.log('QuickPrintScreen: User not authenticated, showing login modal');
+      setLoginModal({
+        visible: true,
+        message: 'Você precisa fazer login para fazer upload de arquivos e criar pedidos.',
+      });
+      return;
+    }
+
     try {
-      console.log('QuickPrintScreen: Picking image');
+      console.log('QuickPrintScreen: User authenticated, picking image');
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsMultipleSelection: true,
@@ -767,6 +790,43 @@ export default function QuickPrintScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={loginModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLoginModal({ ...loginModal, visible: false })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <IconSymbol 
+              ios_icon_name="lock.fill" 
+              android_material_icon_name="lock" 
+              size={48} 
+              color={colors.secondary} 
+            />
+            <Text style={styles.modalTitle}>Login Necessário</Text>
+            <Text style={styles.modalMessage}>{loginModal.message}</Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={() => {
+                  setLoginModal({ ...loginModal, visible: false });
+                  router.push('/auth');
+                }}
+              >
+                <Text style={styles.modalButtonText}>Fazer Login</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.modalButtonSecondary]}
+                onPress={() => setLoginModal({ ...loginModal, visible: false })}
+              >
+                <Text style={[styles.modalButtonText, styles.modalButtonTextSecondary]}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1182,11 +1242,13 @@ const styles = StyleSheet.create({
     padding: 24,
     width: '100%',
     maxWidth: 400,
+    alignItems: 'center',
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: colors.text,
+    marginTop: 16,
     marginBottom: 12,
     textAlign: 'center',
   },
@@ -1197,6 +1259,10 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 24,
   },
+  modalButtons: {
+    width: '100%',
+    gap: 12,
+  },
   modalButton: {
     backgroundColor: colors.secondary,
     paddingVertical: 14,
@@ -1204,9 +1270,20 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
   },
+  modalButtonPrimary: {
+    backgroundColor: colors.secondary,
+  },
+  modalButtonSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
   modalButtonText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  modalButtonTextSecondary: {
+    color: colors.text,
   },
 });
