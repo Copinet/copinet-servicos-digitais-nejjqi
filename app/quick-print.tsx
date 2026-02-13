@@ -49,20 +49,8 @@ export default function QuickPrintScreen() {
   const [previewModal, setPreviewModal] = useState({ visible: false, uri: '', name: '' });
 
   useEffect(() => {
-    const loadPricingInternal = async () => {
-      try {
-        const { apiGet } = await import('@/utils/api');
-        const data = await apiGet('/api/pricing');
-        setPricing(data);
-        console.log('QuickPrintScreen: Pricing loaded:', data);
-      } catch (error) {
-        console.error('QuickPrintScreen: Error loading pricing:', error);
-        showError('Erro', 'Não foi possível carregar os preços. Tente novamente.');
-      }
-    };
-
     console.log('QuickPrintScreen: Loading pricing');
-    loadPricingInternal();
+    loadPricing();
     
     if (params.sharedFile) {
       console.log('QuickPrintScreen: Received shared file:', params.sharedFile);
@@ -70,33 +58,43 @@ export default function QuickPrintScreen() {
   }, [params.sharedFile]);
 
   useEffect(() => {
-    const calculateTotalPriceInternal = () => {
-      if (!pricing || !pricing.quick_print) {
-        setTotalPrice(0);
-        return;
-      }
-
-      let total = 0;
-      const bwPrice = pricing.quick_print.pricePerPageBW || 0.50;
-      const colorPrice = pricing.quick_print.pricePerPageColor || 1.00;
-
-      files.forEach(file => {
-        const pricePerPage = file.colorMode === 'color' ? colorPrice : bwPrice;
-        // 💰 ATUALIZAÇÃO EM TEMPO REAL: Usa contagem manual para Word, local para outros
-        const effectivePageCount = file.manualPageCount || file.localPageCount;
-        const pagesToPrint = file.pageRange === 'all' ? effectivePageCount : calculatePageRangeCount(file.pageRange, effectivePageCount);
-        total += pricePerPage * pagesToPrint * file.copies;
-      });
-
-      setTotalPrice(total);
-    };
-
     if (pricing) {
-      calculateTotalPriceInternal();
+      calculateTotalPrice();
     }
   }, [files, pricing]);
 
+  const loadPricing = async () => {
+    try {
+      const { apiGet } = await import('@/utils/api');
+      const data = await apiGet('/api/pricing');
+      setPricing(data);
+      console.log('QuickPrintScreen: Pricing loaded:', data);
+    } catch (error) {
+      console.error('QuickPrintScreen: Error loading pricing:', error);
+      showError('Erro', 'Não foi possível carregar os preços. Tente novamente.');
+    }
+  };
 
+  const calculateTotalPrice = () => {
+    if (!pricing || !pricing.quick_print) {
+      setTotalPrice(0);
+      return;
+    }
+
+    let total = 0;
+    const bwPrice = pricing.quick_print.pricePerPageBW || 0.50;
+    const colorPrice = pricing.quick_print.pricePerPageColor || 1.00;
+
+    files.forEach(file => {
+      const pricePerPage = file.colorMode === 'color' ? colorPrice : bwPrice;
+      // 💰 ATUALIZAÇÃO EM TEMPO REAL: Usa contagem manual para Word, local para outros
+      const effectivePageCount = file.manualPageCount || file.localPageCount;
+      const pagesToPrint = file.pageRange === 'all' ? effectivePageCount : calculatePageRangeCount(file.pageRange, effectivePageCount);
+      total += pricePerPage * pagesToPrint * file.copies;
+    });
+
+    setTotalPrice(total);
+  };
 
   const calculatePageRangeCount = (range: string, totalPages: number): number => {
     if (!range || range === 'all') {
@@ -818,12 +816,7 @@ export default function QuickPrintScreen() {
                             color={colors.secondary} 
                           />
                           <Text style={styles.wordMandatoryTitle}>
-                            A quantidade de páginas do arquivo Word para impressão é de responsabilidade do cliente. Por favor, confirme a quantidade correta de páginas do seu documento.
-                          </Text>
-                        </View>
-                        <View style={styles.wordWarningBox}>
-                          <Text style={styles.wordWarningText}>
-                            ⚠️ A quantidade de folhas será verificada também ao imprimir. Certifique-se de indicar o número correto.
+                            Confirme a quantidade de páginas do seu arquivo Word para cálculo do pagamento
                           </Text>
                         </View>
                         <View style={styles.wordPageCountControl}>
@@ -1492,21 +1485,6 @@ const styles = StyleSheet.create({
   wordMandatoryNote: {
     fontSize: 12,
     color: colors.secondary,
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  wordWarningBox: {
-    backgroundColor: '#FF9800' + '15',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#FF9800' + '30',
-  },
-  wordWarningText: {
-    fontSize: 13,
-    color: '#FF9800',
     fontWeight: '600',
     textAlign: 'center',
     lineHeight: 18,

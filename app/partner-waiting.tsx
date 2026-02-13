@@ -18,11 +18,9 @@ export default function PartnerWaitingScreen() {
   const serviceName = params.serviceName as string;
   const totalPrice = params.totalPrice as string;
 
-
-
   const checkPartnerResponseCallback = React.useCallback(() => {
     checkPartnerResponse();
-  }, [printJobId, partnerId, serviceName, totalPrice, params.serviceId, router]);
+  }, [printJobId, partnerId, serviceName, totalPrice, params.serviceId]);
 
   useEffect(() => {
     const timer = setInterval(() => {

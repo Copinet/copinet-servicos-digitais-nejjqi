@@ -40,41 +40,39 @@ export default function PhotoPrintScreen() {
   const [previewModal, setPreviewModal] = useState({ visible: false, uri: '', name: '' });
 
   useEffect(() => {
-    const loadPricingInternal = async () => {
-      try {
-        const { apiGet } = await import('@/utils/api');
-        const data = await apiGet('/api/pricing');
-        setPricing(data);
-        console.log('PhotoPrintScreen: Pricing loaded:', data);
-      } catch (error) {
-        console.error('PhotoPrintScreen: Error loading pricing:', error);
-        showError('Erro', 'Não foi possível carregar os preços. Tente novamente.');
-      }
-    };
-
     console.log('PhotoPrintScreen: Loading pricing');
-    loadPricingInternal();
+    loadPricing();
   }, []);
 
   useEffect(() => {
-    const calculateTotalPriceInternal = () => {
-      let total = 0;
-      files.forEach(file => {
-        // 💰 CÁLCULO AUTOMÁTICO: Usa preço baseado no tamanho e modo de cor
-        const sizeConfig = PHOTO_SIZES.find(s => s.value === file.photoSize);
-        if (sizeConfig) {
-          const pricePerPhoto = file.colorMode === 'color' ? sizeConfig.priceColor : sizeConfig.priceBW;
-          total += pricePerPhoto * file.copies;
-        }
-      });
-
-      setTotalPrice(total);
-    };
-
-    calculateTotalPriceInternal();
+    calculateTotalPrice();
   }, [files, pricing]);
 
+  const loadPricing = async () => {
+    try {
+      const { apiGet } = await import('@/utils/api');
+      const data = await apiGet('/api/pricing');
+      setPricing(data);
+      console.log('PhotoPrintScreen: Pricing loaded:', data);
+    } catch (error) {
+      console.error('PhotoPrintScreen: Error loading pricing:', error);
+      showError('Erro', 'Não foi possível carregar os preços. Tente novamente.');
+    }
+  };
 
+  const calculateTotalPrice = () => {
+    let total = 0;
+    files.forEach(file => {
+      // 💰 CÁLCULO AUTOMÁTICO: Usa preço baseado no tamanho e modo de cor
+      const sizeConfig = PHOTO_SIZES.find(s => s.value === file.photoSize);
+      if (sizeConfig) {
+        const pricePerPhoto = file.colorMode === 'color' ? sizeConfig.priceColor : sizeConfig.priceBW;
+        total += pricePerPhoto * file.copies;
+      }
+    });
+
+    setTotalPrice(total);
+  };
 
   const showError = (title: string, message: string) => {
     setErrorModal({ visible: true, title, message });

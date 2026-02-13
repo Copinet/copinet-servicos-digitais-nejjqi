@@ -1,12 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Platform, Image, TextInput, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Platform, Image, TextInput } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '@/styles/commonStyles';
 import { IconSymbol } from '@/components/IconSymbol';
 import * as ImagePicker from 'expo-image-picker';
-import * as Sharing from 'expo-sharing';
 import { Camera } from 'expo-camera';
 
 interface ScannedPage {
@@ -22,53 +21,50 @@ export default function ScanToPDFScreen() {
   const [processing, setProcessing] = useState(false);
   const [pdfMode, setPdfMode] = useState<'single' | 'multiple'>('single');
   const [printOption, setPrintOption] = useState<'pdf_only' | 'pdf_print'>('pdf_only');
-  const [colorMode, setColorMode] = useState<'bw' | 'color'>('color');
+  const [colorMode, setColorMode] = useState<'bw' | 'color'>('color'); // 🎨 Padrão: Colorido/Original
   const [cameraPermission, setCameraPermission] = useState<boolean | null>(null);
   const [totalPrice, setTotalPrice] = useState(0);
   const [pricing, setPricing] = useState<any>(null);
   const [errorModal, setErrorModal] = useState({ visible: false, title: '', message: '' });
-  const [pdfFileName, setPdfFileName] = useState('');
-  const [previewModal, setPreviewModal] = useState({ visible: false, uri: '', index: -1 });
-  const [shareModal, setShareModal] = useState({ visible: false, pdfUrl: '' });
+  const [pdfFileName, setPdfFileName] = useState(''); // 📝 Nome do arquivo PDF
 
   useEffect(() => {
-    const requestCameraPermissionInternal = async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setCameraPermission(status === 'granted');
-    };
-
-    const loadPricingInternal = async () => {
-      try {
-        const { apiGet } = await import('@/utils/api');
-        const data = await apiGet('/api/pricing');
-        setPricing(data);
-        console.log('ScanToPDFScreen: Pricing loaded:', data);
-      } catch (error) {
-        console.error('ScanToPDFScreen: Error loading pricing:', error);
-        showError('Erro', 'Não foi possível carregar os preços. Tente novamente.');
-      }
-    };
-
     console.log('ScanToPDFScreen: Loading pricing');
-    loadPricingInternal();
-    requestCameraPermissionInternal();
+    loadPricing();
+    requestCameraPermission();
   }, []);
 
   useEffect(() => {
-    const calculateTotalPriceInternal = () => {
-      if (!pricing || !pricing.scan_to_pdf) {
-        setTotalPrice(0);
-        return;
-      }
-
-      const pricePerPage = 0.50;
-      setTotalPrice(pricePerPage * pages.length);
-    };
-
-    calculateTotalPriceInternal();
+    calculateTotalPrice();
   }, [pages, printOption, colorMode, pricing]);
 
+  const requestCameraPermission = async () => {
+    const { status } = await Camera.requestCameraPermissionsAsync();
+    setCameraPermission(status === 'granted');
+  };
 
+  const loadPricing = async () => {
+    try {
+      const { apiGet } = await import('@/utils/api');
+      const data = await apiGet('/api/pricing');
+      setPricing(data);
+      console.log('ScanToPDFScreen: Pricing loaded:', data);
+    } catch (error) {
+      console.error('ScanToPDFScreen: Error loading pricing:', error);
+      showError('Erro', 'Não foi possível carregar os preços. Tente novamente.');
+    }
+  };
+
+  const calculateTotalPrice = () => {
+    if (!pricing || !pricing.scan_to_pdf) {
+      setTotalPrice(0);
+      return;
+    }
+
+    // 💰 CÁLCULO AUTOMÁTICO: R$ 0,50 por página (sempre colorido/original)
+    const pricePerPage = 0.50;
+    setTotalPrice(pricePerPage * pages.length);
+  };
 
   const showError = (title: string, message: string) => {
     setErrorModal({ visible: true, title, message });
@@ -94,6 +90,7 @@ export default function ScanToPDFScreen() {
         };
         setPages(prev => [...prev, newPage]);
         
+        // Auto-process the page
         await processPage(newPage);
       }
     } catch (error) {
@@ -117,6 +114,7 @@ export default function ScanToPDFScreen() {
         }));
         setPages(prev => [...prev, ...newPages]);
         
+        // Auto-process all pages
         for (const page of newPages) {
           await processPage(page);
         }
@@ -130,6 +128,7 @@ export default function ScanToPDFScreen() {
   const processPage = async (page: ScannedPage) => {
     setProcessing(true);
     try {
+      // Upload the image first
       const { uploadFile, authenticatedPost, getErrorMessage } = await import('@/utils/api');
       
       const file = {
@@ -147,9 +146,11 @@ export default function ScanToPDFScreen() {
 
       console.log('ScanToPDFScreen: Page uploaded:', uploadResult);
 
+      // Process with AI to enhance document (with timeout and fallback)
       console.log('ScanToPDFScreen: Processing with AI...');
       
       try {
+        // Create a timeout promise (60 seconds for AI processing)
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('TIMEOUT')), 60000);
         });
@@ -167,13 +168,16 @@ export default function ScanToPDFScreen() {
 
         console.log('ScanToPDFScreen: Page processed:', processResponse);
 
+        // Check if processing was successful
         if (processResponse.success && processResponse.processedImageUrl) {
+          // Update the page with processed version
           setPages(prev => prev.map(p => 
             p.uri === page.uri 
               ? { ...p, processed: true, processedUrl: processResponse.processedImageUrl }
               : p
           ));
         } else {
+          // Fallback: Use original image if AI processing failed
           console.warn('ScanToPDFScreen: AI processing failed, using original image');
           setPages(prev => prev.map(p => 
             p.uri === page.uri 
@@ -182,6 +186,7 @@ export default function ScanToPDFScreen() {
           ));
         }
       } catch (aiError: any) {
+        // Fallback: Use original image if AI processing times out or fails
         console.warn('ScanToPDFScreen: AI processing error, using original image:', aiError);
         
         setPages(prev => prev.map(p => 
@@ -195,6 +200,7 @@ export default function ScanToPDFScreen() {
       const { getErrorMessage } = await import('@/utils/api');
       showError('Erro', getErrorMessage('PROCESSING_FAILED'));
       
+      // Still mark as processed with original URI so user can continue
       setPages(prev => prev.map(p => 
         p.uri === page.uri 
           ? { ...p, processed: true, processedUrl: page.uri }
@@ -218,10 +224,6 @@ export default function ScanToPDFScreen() {
     });
   };
 
-  const handlePreviewImage = (uri: string, index: number) => {
-    setPreviewModal({ visible: true, uri, index });
-  };
-
   const handleContinue = async () => {
     if (pages.length === 0) {
       showError('Atenção', 'Por favor, adicione pelo menos uma página para escanear.');
@@ -238,6 +240,7 @@ export default function ScanToPDFScreen() {
     try {
       const { authenticatedPost } = await import('@/utils/api');
       
+      // 📝 Gera nome do arquivo se não fornecido
       const finalFileName = pdfFileName.trim() || `Documento_Escaneado_${Date.now()}`;
       
       const printJob = {
@@ -252,17 +255,15 @@ export default function ScanToPDFScreen() {
         options: {
           pdfMode,
           pdfFileName: finalFileName,
-          colorMode: 'color',
-          pricePerPage: 0.50,
+          colorMode: 'color', // 🎨 Sempre colorido/original
+          pricePerPage: 0.50, // 💰 R$ 0,50 por página
         },
       };
 
       console.log('ScanToPDFScreen: Creating print job:', printJob);
       const response = await authenticatedPost('/api/print-jobs', printJob);
       console.log('ScanToPDFScreen: Print job created:', response);
-      console.log('ScanToPDFScreen: PDF URL received:', response.pdfUrl);
 
-      // Navigate to payment with print job ID and PDF URL
       router.push({
         pathname: '/payment',
         params: {
@@ -270,8 +271,6 @@ export default function ScanToPDFScreen() {
           serviceName: 'Escanear para PDF',
           totalPrice: totalPrice.toFixed(2),
           printJobId: response.id,
-          pdfUrl: response.pdfUrl || '',
-          serviceType: 'scan_to_pdf',
         },
       });
     } catch (error) {
@@ -280,48 +279,6 @@ export default function ScanToPDFScreen() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleSharePDF = async (pdfUrl: string) => {
-    try {
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (!isAvailable) {
-        showError('Erro', 'Compartilhamento não disponível neste dispositivo.');
-        return;
-      }
-
-      await Sharing.shareAsync(pdfUrl, {
-        mimeType: 'application/pdf',
-        dialogTitle: 'Compartilhar PDF',
-      });
-    } catch (error) {
-      console.error('ScanToPDFScreen: Error sharing PDF:', error);
-      showError('Erro', 'Não foi possível compartilhar o PDF.');
-    }
-  };
-
-  const handleShareWhatsApp = (pdfUrl: string) => {
-    const message = encodeURIComponent('Confira este documento PDF que escaneei!');
-    const whatsappUrl = `whatsapp://send?text=${message}`;
-    
-    Linking.canOpenURL(whatsappUrl).then(supported => {
-      if (supported) {
-        Linking.openURL(whatsappUrl);
-      } else {
-        showError('Erro', 'WhatsApp não está instalado neste dispositivo.');
-      }
-    });
-  };
-
-  const handleShareEmail = (pdfUrl: string) => {
-    const subject = encodeURIComponent('Documento PDF Escaneado');
-    const body = encodeURIComponent('Segue em anexo o documento PDF que escaneei.');
-    const emailUrl = `mailto:?subject=${subject}&body=${body}`;
-    
-    Linking.openURL(emailUrl).catch(err => {
-      console.error('ScanToPDFScreen: Error opening email:', err);
-      showError('Erro', 'Não foi possível abrir o cliente de email.');
-    });
   };
 
   return (
@@ -435,16 +392,12 @@ export default function ScanToPDFScreen() {
             <>
               <View style={styles.pagesSection}>
                 <Text style={styles.sectionTitle}>Páginas Escaneadas ({pages.length})</Text>
-                <Text style={styles.sectionSubtitle}>Toque na imagem para visualizar • Arraste para reordenar</Text>
+                <Text style={styles.sectionSubtitle}>Arraste para reordenar</Text>
                 
                 <View style={styles.pagesGrid}>
                   {pages.map((page, index) => (
                     <View key={index} style={styles.pageContainer}>
-                      <TouchableOpacity 
-                        style={styles.pageCard}
-                        onPress={() => handlePreviewImage(page.processed && page.processedUrl ? page.processedUrl : page.uri, index)}
-                        activeOpacity={0.7}
-                      >
+                      <View style={styles.pageCard}>
                         <Image 
                           source={{ uri: page.processed && page.processedUrl ? page.processedUrl : page.uri }} 
                           style={styles.pageImage}
@@ -463,15 +416,7 @@ export default function ScanToPDFScreen() {
                             />
                           </View>
                         )}
-                        <View style={styles.zoomIndicator}>
-                          <IconSymbol 
-                            ios_icon_name="magnifyingglass" 
-                            android_material_icon_name="search" 
-                            size={16} 
-                            color="#FFFFFF" 
-                          />
-                        </View>
-                      </TouchableOpacity>
+                      </View>
                       <View style={styles.pageActions}>
                         {index > 0 && (
                           <TouchableOpacity 
@@ -564,126 +509,6 @@ export default function ScanToPDFScreen() {
           )}
         </View>
       </ScrollView>
-
-      <Modal
-        visible={previewModal.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPreviewModal({ ...previewModal, visible: false })}
-      >
-        <View style={styles.previewModalOverlay}>
-          <View style={styles.previewModalContent}>
-            <View style={styles.previewHeader}>
-              <Text style={styles.previewTitle}>Página {previewModal.index + 1}</Text>
-              <TouchableOpacity 
-                onPress={() => setPreviewModal({ ...previewModal, visible: false })}
-                style={styles.previewCloseButton}
-              >
-                <IconSymbol 
-                  ios_icon_name="xmark" 
-                  android_material_icon_name="close" 
-                  size={24} 
-                  color="#FFFFFF" 
-                />
-              </TouchableOpacity>
-            </View>
-            <ScrollView 
-              style={styles.previewScrollView}
-              contentContainerStyle={styles.previewScrollContent}
-              maximumZoomScale={3}
-              minimumZoomScale={1}
-            >
-              <Image 
-                source={{ uri: previewModal.uri }} 
-                style={styles.previewImage}
-                resizeMode="contain"
-              />
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={shareModal.visible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShareModal({ ...shareModal, visible: false })}
-      >
-        <View style={styles.shareModalOverlay}>
-          <View style={styles.shareModalContent}>
-            <View style={styles.shareModalHeader}>
-              <Text style={styles.shareModalTitle}>Compartilhar PDF</Text>
-              <TouchableOpacity 
-                onPress={() => setShareModal({ ...shareModal, visible: false })}
-                style={styles.shareModalCloseButton}
-              >
-                <IconSymbol 
-                  ios_icon_name="xmark" 
-                  android_material_icon_name="close" 
-                  size={24} 
-                  color={colors.text} 
-                />
-              </TouchableOpacity>
-            </View>
-            
-            <View style={styles.shareOptions}>
-              <TouchableOpacity 
-                style={styles.shareOption}
-                onPress={() => {
-                  handleShareWhatsApp(shareModal.pdfUrl);
-                  setShareModal({ ...shareModal, visible: false });
-                }}
-              >
-                <View style={[styles.shareOptionIcon, { backgroundColor: '#25D366' }]}>
-                  <IconSymbol 
-                    ios_icon_name="message.fill" 
-                    android_material_icon_name="chat" 
-                    size={32} 
-                    color="#FFFFFF" 
-                  />
-                </View>
-                <Text style={styles.shareOptionText}>WhatsApp</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.shareOption}
-                onPress={() => {
-                  handleShareEmail(shareModal.pdfUrl);
-                  setShareModal({ ...shareModal, visible: false });
-                }}
-              >
-                <View style={[styles.shareOptionIcon, { backgroundColor: '#EA4335' }]}>
-                  <IconSymbol 
-                    ios_icon_name="envelope.fill" 
-                    android_material_icon_name="email" 
-                    size={32} 
-                    color="#FFFFFF" 
-                  />
-                </View>
-                <Text style={styles.shareOptionText}>Email</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.shareOption}
-                onPress={() => {
-                  handleSharePDF(shareModal.pdfUrl);
-                  setShareModal({ ...shareModal, visible: false });
-                }}
-              >
-                <View style={[styles.shareOptionIcon, { backgroundColor: colors.secondary }]}>
-                  <IconSymbol 
-                    ios_icon_name="square.and.arrow.up" 
-                    android_material_icon_name="share" 
-                    size={32} 
-                    color="#FFFFFF" 
-                  />
-                </View>
-                <Text style={styles.shareOptionText}>Outros</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       <Modal
         visible={errorModal.visible}
@@ -845,13 +670,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     aspectRatio: 3/4,
     position: 'relative',
-    borderWidth: 2,
-    borderColor: colors.border,
   },
   pageImage: {
     width: '100%',
     height: '100%',
-    backgroundColor: colors.background,
   },
   pageNumber: {
     position: 'absolute',
@@ -874,14 +696,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 4,
-  },
-  zoomIndicator: {
-    position: 'absolute',
-    bottom: 8,
-    right: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    borderRadius: 12,
-    padding: 6,
   },
   pageActions: {
     flexDirection: 'row',
@@ -956,102 +770,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#FFFFFF',
-  },
-  previewModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
-  },
-  previewModalContent: {
-    flex: 1,
-  },
-  previewHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-  },
-  previewTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    flex: 1,
-  },
-  previewCloseButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewScrollView: {
-    flex: 1,
-  },
-  previewScrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  previewImage: {
-    width: '100%',
-    height: '100%',
-    minHeight: 400,
-    maxHeight: 800,
-  },
-  shareModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  shareModalContent: {
-    backgroundColor: colors.card,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
-  },
-  shareModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  shareModalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  shareModalCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  shareOptions: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    gap: 16,
-  },
-  shareOption: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  shareOptionIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  shareOptionText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
   },
   modalOverlay: {
     flex: 1,
