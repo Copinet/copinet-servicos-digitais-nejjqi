@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Platform, Image } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '@/styles/commonStyles';
@@ -17,13 +17,14 @@ interface UploadedFile {
   url?: string;
   photoSize: string;
   copies: number;
+  colorMode: 'color' | 'bw'; // 🎨 Modo de cor (padrão: colorido)
 }
 
 const PHOTO_SIZES = [
-  { value: '10x15', label: '10x15 cm', price: 2.00 },
-  { value: '13x18', label: '13x18 cm', price: 3.50 },
-  { value: '15x21', label: '15x21 cm', price: 5.00 },
-  { value: '21x29', label: '21x29 cm (A4)', price: 8.00 },
+  { value: '10x15', label: '10x15 cm', priceColor: 2.00, priceBW: 1.50 },
+  { value: '13x18', label: '13x18 cm', priceColor: 3.50, priceBW: 2.80 },
+  { value: '15x21', label: '15x21 cm', priceColor: 5.00, priceBW: 4.00 },
+  { value: '21x29', label: '21x29 cm (A4)', priceColor: 8.00, priceBW: 6.40 },
 ];
 
 export default function PhotoPrintScreen() {
@@ -36,6 +37,7 @@ export default function PhotoPrintScreen() {
   const [totalPrice, setTotalPrice] = useState(0);
   const [pricing, setPricing] = useState<any>(null);
   const [errorModal, setErrorModal] = useState({ visible: false, title: '', message: '' });
+  const [previewModal, setPreviewModal] = useState({ visible: false, uri: '', name: '' });
 
   useEffect(() => {
     console.log('PhotoPrintScreen: Loading pricing');
@@ -59,15 +61,14 @@ export default function PhotoPrintScreen() {
   };
 
   const calculateTotalPrice = () => {
-    if (!pricing || !pricing.photo_print || !pricing.photo_print.sizes) {
-      setTotalPrice(0);
-      return;
-    }
-
     let total = 0;
     files.forEach(file => {
-      const sizePrice = pricing.photo_print.sizes[file.photoSize] || 0;
-      total += sizePrice * file.copies;
+      // 💰 CÁLCULO AUTOMÁTICO: Usa preço baseado no tamanho e modo de cor
+      const sizeConfig = PHOTO_SIZES.find(s => s.value === file.photoSize);
+      if (sizeConfig) {
+        const pricePerPhoto = file.colorMode === 'color' ? sizeConfig.priceColor : sizeConfig.priceBW;
+        total += pricePerPhoto * file.copies;
+      }
     });
 
     setTotalPrice(total);
@@ -163,6 +164,7 @@ export default function PhotoPrintScreen() {
           url: upload.url,
           photoSize: '10x15',
           copies: 1,
+          colorMode: 'color', // 🎨 Padrão: Colorido/Original
         }));
 
         setFiles(prev => [...prev, ...newFiles]);
@@ -254,12 +256,10 @@ export default function PhotoPrintScreen() {
     }
   };
 
-  const getSizePrice = (size: string) => {
-    if (!pricing || !pricing.photo_print || !pricing.photo_print.sizes) {
-      const defaultSize = PHOTO_SIZES.find(s => s.value === size);
-      return defaultSize?.price || 0;
-    }
-    return pricing.photo_print.sizes[size] || 0;
+  const getSizePrice = (size: string, colorMode: 'color' | 'bw') => {
+    const sizeConfig = PHOTO_SIZES.find(s => s.value === size);
+    if (!sizeConfig) return 0;
+    return colorMode === 'color' ? sizeConfig.priceColor : sizeConfig.priceBW;
   };
 
   return (
@@ -346,12 +346,15 @@ export default function PhotoPrintScreen() {
                   <View key={index} style={styles.fileCard}>
                     <View style={styles.fileHeader}>
                       <View style={styles.fileInfo}>
-                        <IconSymbol 
-                          ios_icon_name="photo.fill" 
-                          android_material_icon_name="image" 
-                          size={24} 
-                          color={colors.secondary} 
-                        />
+                        <TouchableOpacity 
+                          onPress={() => setPreviewModal({ visible: true, uri: file.uri, name: file.name })}
+                        >
+                          <Image 
+                            source={{ uri: file.uri }} 
+                            style={styles.fileThumbnail}
+                            resizeMode="cover"
+                          />
+                        </TouchableOpacity>
                         <View style={styles.fileDetails}>
                           <Text style={styles.fileName}>{file.name}</Text>
                           <Text style={styles.filePages}>
@@ -392,10 +395,32 @@ export default function PhotoPrintScreen() {
                                 styles.sizeButtonPrice, 
                                 file.photoSize === size.value && styles.sizeButtonPriceActive
                               ]}>
-                                R$ {getSizePrice(size.value).toFixed(2)}
+                                R$ {getSizePrice(size.value, file.colorMode).toFixed(2)}
                               </Text>
                             </TouchableOpacity>
                           ))}
+                        </View>
+                      </View>
+
+                      <View style={styles.optionRow}>
+                        <Text style={styles.optionLabel}>Modo de Cor:</Text>
+                        <View style={styles.colorModeButtons}>
+                          <TouchableOpacity 
+                            style={[styles.colorModeButton, styles.colorModeButtonPrimary, file.colorMode === 'color' && styles.colorModeButtonActive]}
+                            onPress={() => updateFileOption(index, 'colorMode', 'color')}
+                          >
+                            <Text style={[styles.colorModeButtonText, file.colorMode === 'color' && styles.colorModeButtonTextActive]}>
+                              Colorido
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={[styles.colorModeButton, styles.colorModeButtonSecondary, file.colorMode === 'bw' && styles.colorModeButtonActiveSecondary]}
+                            onPress={() => updateFileOption(index, 'colorMode', 'bw')}
+                          >
+                            <Text style={[styles.colorModeButtonTextSecondary, file.colorMode === 'bw' && styles.colorModeButtonTextActiveSecondary]}>
+                              P&B
+                            </Text>
+                          </TouchableOpacity>
                         </View>
                       </View>
 
@@ -487,6 +512,44 @@ export default function PhotoPrintScreen() {
             >
               <Text style={styles.modalButtonText}>OK</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={previewModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewModal({ ...previewModal, visible: false })}
+      >
+        <View style={styles.previewModalOverlay}>
+          <View style={styles.previewModalContent}>
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewTitle}>{previewModal.name}</Text>
+              <TouchableOpacity 
+                onPress={() => setPreviewModal({ ...previewModal, visible: false })}
+                style={styles.previewCloseButton}
+              >
+                <IconSymbol 
+                  ios_icon_name="xmark" 
+                  android_material_icon_name="close" 
+                  size={24} 
+                  color="#FFFFFF" 
+                />
+              </TouchableOpacity>
+            </View>
+            <ScrollView 
+              style={styles.previewScrollView}
+              contentContainerStyle={styles.previewScrollContent}
+              maximumZoomScale={3}
+              minimumZoomScale={1}
+            >
+              <Image 
+                source={{ uri: previewModal.uri }} 
+                style={styles.previewImage}
+                resizeMode="contain"
+              />
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -664,6 +727,50 @@ const styles = StyleSheet.create({
   sizeButtonPriceActive: {
     color: 'rgba(255, 255, 255, 0.9)',
   },
+  colorModeButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  colorModeButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  colorModeButtonPrimary: {
+    backgroundColor: colors.secondary,
+    borderColor: colors.secondary,
+  },
+  colorModeButtonSecondary: {
+    backgroundColor: 'transparent',
+    borderColor: colors.border,
+  },
+  colorModeButtonActive: {
+    backgroundColor: colors.secondary,
+    borderColor: colors.secondary,
+  },
+  colorModeButtonActiveSecondary: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+  },
+  colorModeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  colorModeButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  colorModeButtonTextSecondary: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  colorModeButtonTextActiveSecondary: {
+    color: colors.text,
+  },
   copiesControl: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -786,5 +893,53 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  fileThumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+  },
+  previewModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+  },
+  previewModalContent: {
+    flex: 1,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+  },
+  previewTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  previewCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewScrollView: {
+    flex: 1,
+  },
+  previewScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 400,
   },
 });

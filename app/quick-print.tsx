@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Modal, Platform, Image } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '@/styles/commonStyles';
@@ -46,6 +46,7 @@ export default function QuickPrintScreen() {
   const [loginModal, setLoginModal] = useState({ visible: false, message: '' });
   const [processingLargeFile, setProcessingLargeFile] = useState(false);
   const [processingFileName, setProcessingFileName] = useState('');
+  const [previewModal, setPreviewModal] = useState({ visible: false, uri: '', name: '' });
 
   useEffect(() => {
     console.log('QuickPrintScreen: Loading pricing');
@@ -715,12 +716,29 @@ export default function QuickPrintScreen() {
                   <View key={index} style={styles.fileCard}>
                     <View style={styles.fileHeader}>
                       <View style={styles.fileInfo}>
-                        <IconSymbol 
-                          ios_icon_name="doc.fill" 
-                          android_material_icon_name="description" 
-                          size={24} 
-                          color={colors.secondary} 
-                        />
+                        <TouchableOpacity 
+                          onPress={() => {
+                            if (isImage) {
+                              setPreviewModal({ visible: true, uri: file.uri, name: file.name });
+                            }
+                          }}
+                          disabled={!isImage}
+                        >
+                          {isImage ? (
+                            <Image 
+                              source={{ uri: file.uri }} 
+                              style={styles.fileThumbnail}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <IconSymbol 
+                              ios_icon_name="doc.fill" 
+                              android_material_icon_name="description" 
+                              size={24} 
+                              color={colors.secondary} 
+                            />
+                          )}
+                        </TouchableOpacity>
                         <View style={styles.fileDetails}>
                           <Text style={styles.fileName}>{file.name}</Text>
                           <View style={styles.pageCountRow}>
@@ -1102,6 +1120,44 @@ export default function QuickPrintScreen() {
                 <Text style={[styles.modalButtonText, styles.modalButtonTextSecondary]}>Cancelar</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={previewModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewModal({ ...previewModal, visible: false })}
+      >
+        <View style={styles.previewModalOverlay}>
+          <View style={styles.previewModalContent}>
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewTitle}>{previewModal.name}</Text>
+              <TouchableOpacity 
+                onPress={() => setPreviewModal({ ...previewModal, visible: false })}
+                style={styles.previewCloseButton}
+              >
+                <IconSymbol 
+                  ios_icon_name="xmark" 
+                  android_material_icon_name="close" 
+                  size={24} 
+                  color="#FFFFFF" 
+                />
+              </TouchableOpacity>
+            </View>
+            <ScrollView 
+              style={styles.previewScrollView}
+              contentContainerStyle={styles.previewScrollContent}
+              maximumZoomScale={3}
+              minimumZoomScale={1}
+            >
+              <Image 
+                source={{ uri: previewModal.uri }} 
+                style={styles.previewImage}
+                resizeMode="contain"
+              />
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1694,5 +1750,53 @@ const styles = StyleSheet.create({
   },
   modalButtonTextSecondary: {
     color: colors.text,
+  },
+  fileThumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+  },
+  previewModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+  },
+  previewModalContent: {
+    flex: 1,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+  },
+  previewTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  previewCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewScrollView: {
+    flex: 1,
+  },
+  previewScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 400,
   },
 });

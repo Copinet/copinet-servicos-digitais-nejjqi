@@ -1,20 +1,30 @@
 
 import { StyleSheet, ViewStyle, TextStyle } from 'react-native';
 
+// 🎨 IDENTIDADE VISUAL COPINET - Dark Modern Theme
 export const colors = {
-  primary: '#C0C0C0',      // Silver
-  secondary: '#D4AF37',    // Gold
-  accent: '#FFD700',       // Bright Gold
-  background: '#F5F5F5',   // Light Silver/Grey
-  backgroundAlt: '#FFFFFF', // White
-  text: '#2C2C2C',         // Dark Grey (high contrast for elderly)
-  textSecondary: '#666666', // Medium Grey
-  card: '#FFFFFF',         // White cards
-  border: '#E0E0E0',       // Light border
+  // Paleta Principal - Dark Modern
+  primary: '#C0C0C0',      // Silver (Prata)
+  secondary: '#D4AF37',    // Gold (Dourado) - Destaques e botões primários
+  accent: '#FFD700',       // Bright Gold - Highlights especiais
+  
+  // Backgrounds - Dark Theme
+  background: '#121212',   // Charcoal - Fundo principal (Dark)
+  backgroundAlt: '#1E1E1E', // Dark Grey - Fundo alternativo
+  card: '#1E1E1E',         // Dark Grey - Cards com Glassmorphism
+  
+  // Textos - High Contrast
+  text: '#FFFFFF',         // White - Texto principal (high contrast)
+  textSecondary: '#C0C0C0', // Silver - Textos secundários e bordas
+  
+  // Bordas e Divisores
+  border: '#333333',       // Dark border
+  
+  // Estados
   success: '#4CAF50',      // Green
   warning: '#FF9800',      // Orange
   error: '#F44336',        // Red
-  highlight: '#FFD700',    // Gold highlight
+  highlight: '#D4AF37',    // Gold highlight
 };
 
 export const buttonStyles = StyleSheet.create({

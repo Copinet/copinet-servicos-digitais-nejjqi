@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Platform, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Platform, Image, TextInput } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '@/styles/commonStyles';
@@ -21,11 +21,12 @@ export default function ScanToPDFScreen() {
   const [processing, setProcessing] = useState(false);
   const [pdfMode, setPdfMode] = useState<'single' | 'multiple'>('single');
   const [printOption, setPrintOption] = useState<'pdf_only' | 'pdf_print'>('pdf_only');
-  const [colorMode, setColorMode] = useState<'bw' | 'color'>('bw');
+  const [colorMode, setColorMode] = useState<'bw' | 'color'>('color'); // 🎨 Padrão: Colorido/Original
   const [cameraPermission, setCameraPermission] = useState<boolean | null>(null);
   const [totalPrice, setTotalPrice] = useState(0);
   const [pricing, setPricing] = useState<any>(null);
   const [errorModal, setErrorModal] = useState({ visible: false, title: '', message: '' });
+  const [pdfFileName, setPdfFileName] = useState(''); // 📝 Nome do arquivo PDF
 
   useEffect(() => {
     console.log('ScanToPDFScreen: Loading pricing');
@@ -60,14 +61,9 @@ export default function ScanToPDFScreen() {
       return;
     }
 
-    if (printOption === 'pdf_only') {
-      setTotalPrice(0);
-    } else {
-      const pricePerPage = colorMode === 'color' 
-        ? (pricing.scan_to_pdf.pricePerPageColor || 1.00)
-        : (pricing.scan_to_pdf.pricePerPageBW || 0.30);
-      setTotalPrice(pricePerPage * pages.length);
-    }
+    // 💰 CÁLCULO AUTOMÁTICO: R$ 0,50 por página (sempre colorido/original)
+    const pricePerPage = 0.50;
+    setTotalPrice(pricePerPage * pages.length);
   };
 
   const showError = (title: string, message: string) => {
@@ -244,6 +240,9 @@ export default function ScanToPDFScreen() {
     try {
       const { authenticatedPost } = await import('@/utils/api');
       
+      // 📝 Gera nome do arquivo se não fornecido
+      const finalFileName = pdfFileName.trim() || `Documento_Escaneado_${Date.now()}`;
+      
       const printJob = {
         serviceType: 'scan_to_pdf',
         files: pages.map(p => ({
@@ -255,8 +254,9 @@ export default function ScanToPDFScreen() {
         })),
         options: {
           pdfMode,
-          printOption,
-          colorMode: printOption === 'pdf_print' ? colorMode : undefined,
+          pdfFileName: finalFileName,
+          colorMode: 'color', // 🎨 Sempre colorido/original
+          pricePerPage: 0.50, // 💰 R$ 0,50 por página
         },
       };
 
@@ -334,56 +334,18 @@ export default function ScanToPDFScreen() {
           </View>
 
           <View style={styles.optionsSection}>
-            <Text style={styles.sectionTitle}>Opção de Saída</Text>
-            <View style={styles.optionButtons}>
-              <TouchableOpacity 
-                style={[styles.optionButton, printOption === 'pdf_only' && styles.optionButtonActive]}
-                onPress={() => setPrintOption('pdf_only')}
-              >
-                <Text style={[styles.optionButtonText, printOption === 'pdf_only' && styles.optionButtonTextActive]}>
-                  Apenas PDF
-                </Text>
-                <Text style={[styles.optionButtonSubtext, printOption === 'pdf_only' && styles.optionButtonSubtextActive]}>
-                  Grátis
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.optionButton, printOption === 'pdf_print' && styles.optionButtonActive]}
-                onPress={() => setPrintOption('pdf_print')}
-              >
-                <Text style={[styles.optionButtonText, printOption === 'pdf_print' && styles.optionButtonTextActive]}>
-                  PDF + Impressão
-                </Text>
-                <Text style={[styles.optionButtonSubtext, printOption === 'pdf_print' && styles.optionButtonSubtextActive]}>
-                  Preço por página
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.sectionTitle}>Nome do Arquivo PDF</Text>
+            <TextInput
+              style={styles.fileNameInput}
+              value={pdfFileName}
+              onChangeText={setPdfFileName}
+              placeholder="Ex: Documento_Escaneado"
+              placeholderTextColor={colors.textSecondary}
+            />
+            <Text style={styles.fileNameHint}>
+              💡 Se deixar em branco, será gerado automaticamente
+            </Text>
           </View>
-
-          {printOption === 'pdf_print' && (
-            <View style={styles.optionsSection}>
-              <Text style={styles.sectionTitle}>Modo de Impressão</Text>
-              <View style={styles.optionButtons}>
-                <TouchableOpacity 
-                  style={[styles.optionButton, colorMode === 'bw' && styles.optionButtonActive]}
-                  onPress={() => setColorMode('bw')}
-                >
-                  <Text style={[styles.optionButtonText, colorMode === 'bw' && styles.optionButtonTextActive]}>
-                    P&B
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.optionButton, colorMode === 'color' && styles.optionButtonActive]}
-                  onPress={() => setColorMode('color')}
-                >
-                  <Text style={[styles.optionButtonText, colorMode === 'color' && styles.optionButtonTextActive]}>
-                    Colorido
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
 
           <View style={styles.uploadSection}>
             <Text style={styles.sectionTitle}>Adicionar Páginas</Text>
@@ -511,16 +473,16 @@ export default function ScanToPDFScreen() {
                   </Text>
                 </View>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Saída:</Text>
-                  <Text style={styles.summaryValue}>
-                    {printOption === 'pdf_only' ? 'Apenas PDF' : `PDF + Impressão ${colorMode === 'bw' ? 'P&B' : 'Colorida'}`}
-                  </Text>
+                  <Text style={styles.summaryLabel}>Impressão:</Text>
+                  <Text style={styles.summaryValue}>Colorido/Original</Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Preço por Página:</Text>
+                  <Text style={styles.summaryValue}>R$ 0,50</Text>
                 </View>
                 <View style={[styles.summaryRow, styles.summaryTotal]}>
                   <Text style={styles.summaryTotalLabel}>Total:</Text>
-                  <Text style={styles.summaryTotalValue}>
-                    {printOption === 'pdf_only' ? 'Grátis' : `R$ ${totalPrice.toFixed(2)}`}
-                  </Text>
+                  <Text style={styles.summaryTotalValue}>R$ {totalPrice.toFixed(2)}</Text>
                 </View>
               </View>
 
@@ -533,9 +495,7 @@ export default function ScanToPDFScreen() {
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <>
-                    <Text style={styles.continueButtonText}>
-                      {printOption === 'pdf_only' ? 'Gerar PDF' : 'Continuar para Pagamento'}
-                    </Text>
+                    <Text style={styles.continueButtonText}>Continuar para Pagamento</Text>
                     <IconSymbol 
                       ios_icon_name="arrow.right" 
                       android_material_icon_name="arrow-forward" 
@@ -643,6 +603,21 @@ const styles = StyleSheet.create({
   },
   optionButtonSubtextActive: {
     color: 'rgba(255, 255, 255, 0.9)',
+  },
+  fileNameInput: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    fontSize: 15,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  fileNameHint: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 8,
+    fontStyle: 'italic',
   },
   uploadSection: {
     marginBottom: 24,
