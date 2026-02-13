@@ -38,7 +38,7 @@ export default function HomeScreen() {
   useEffect(() => {
     console.log('HomeScreen: Loading services, user authenticated:', !!user);
     loadServices();
-  }, [loadServices]);
+  }, [loadServices, user]);
 
   const handleServicePress = (serviceName: string) => {
     console.log('[HomeScreen] Service pressed:', serviceName);

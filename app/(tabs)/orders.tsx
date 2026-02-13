@@ -19,7 +19,7 @@ export default function OrdersScreen() {
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  useEffect(() => {
+  const loadOrdersCallback = React.useCallback(() => {
     if (user) {
       console.log('OrdersScreen: Loading orders for user', user.id);
       loadOrders();
@@ -27,6 +27,10 @@ export default function OrdersScreen() {
       setLoading(false);
     }
   }, [user]);
+
+  useEffect(() => {
+    loadOrdersCallback();
+  }, [loadOrdersCallback]);
 
   const loadOrders = async () => {
     try {

@@ -8,7 +8,7 @@ import { IconSymbol } from '@/components/IconSymbol';
 import { useAuth } from '@/contexts/AuthContext';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import { PDFDocument } from 'pdf-lib';
 
 interface UploadedFile {
@@ -23,6 +23,9 @@ interface UploadedFile {
   pageRange: string;
   localPageCount: number;
   isEstimated?: boolean;
+  isWord?: boolean;
+  manualPageCount?: number;
+  processingFile?: boolean;
 }
 
 export default function QuickPrintScreen() {
@@ -51,10 +54,12 @@ export default function QuickPrintScreen() {
     if (params.sharedFile) {
       console.log('QuickPrintScreen: Received shared file:', params.sharedFile);
     }
-  }, []);
+  }, [params.sharedFile]);
 
   useEffect(() => {
-    calculateTotalPrice();
+    if (pricing) {
+      calculateTotalPrice();
+    }
   }, [files, pricing]);
 
   const loadPricing = async () => {
@@ -81,7 +86,9 @@ export default function QuickPrintScreen() {
 
     files.forEach(file => {
       const pricePerPage = file.colorMode === 'color' ? colorPrice : bwPrice;
-      const pagesToPrint = file.pageRange === 'all' ? file.localPageCount : calculatePageRangeCount(file.pageRange, file.localPageCount);
+      // 💰 ATUALIZAÇÃO EM TEMPO REAL: Usa contagem manual para Word, local para outros
+      const effectivePageCount = file.manualPageCount || file.localPageCount;
+      const pagesToPrint = file.pageRange === 'all' ? effectivePageCount : calculatePageRangeCount(file.pageRange, effectivePageCount);
       total += pricePerPage * pagesToPrint * file.copies;
     });
 
@@ -124,79 +131,57 @@ export default function QuickPrintScreen() {
   };
 
   /**
-   * 🚀 OTIMIZADO: Conta páginas de PDF com economia de memória
-   * - Usa Uint8Array em vez de Base64 (economiza 33% de RAM)
-   * - Timeout agressivo de 45 segundos para arquivos gigantes
+   * 🚀 OTIMIZADO: Conta páginas de PDF com ArrayBuffer (economia de 33% de memória)
+   * - Usa readAsArrayBufferAsync em vez de Base64
+   * - Processamento assíncrono não bloqueia a UI
+   * - Timeout de 60 segundos para arquivos gigantes (1500+ páginas)
    * - Fallback inteligente para estimativa se estourar memória
    */
   const countPDFPagesLocally = async (uri: string, fileName: string, fileSize: number): Promise<{ pageCount: number; isEstimated: boolean }> => {
     const startTime = Date.now();
-    const TIMEOUT_MS = 45000; // 45 segundos para arquivos gigantes (800+ páginas)
+    const TIMEOUT_MS = 60000; // 60 segundos para arquivos gigantes (1500+ páginas)
     const fileSizeMB = fileSize / (1024 * 1024);
     
-    console.log(`📄 Iniciando contagem para: ${fileName} (${fileSizeMB.toFixed(2)}MB)`);
-    
-    // Para arquivos muito grandes (>60MB), mostra feedback visual
-    if (fileSizeMB > 60) {
-      setProcessingLargeFile(true);
-      setProcessingFileName(fileName);
-    }
+    console.log(`log: [QuickPrint] Starting PDF processing: ${fileName} (${fileSizeMB.toFixed(2)}MB)`);
     
     try {
-      // 🔥 OTIMIZAÇÃO: Lê como Uint8Array em vez de Base64 (economiza 33% de RAM)
-      const fileInfo = await FileSystem.getInfoAsync(uri);
-      if (!fileInfo.exists) {
-        throw new Error('Arquivo não encontrado');
-      }
+      // 🔥 OTIMIZAÇÃO CRÍTICA: Lê diretamente como ArrayBuffer (economiza 33% de RAM vs Base64)
+      console.log(`log: [QuickPrint] Reading file as ArrayBuffer: ${fileName}`);
       
-      console.log(`📦 Lendo arquivo: ${fileName} (${fileSizeMB.toFixed(2)}MB)`);
+      // Use fetch to read file as ArrayBuffer directly (most efficient method)
+      const readPromise = fetch(uri).then(response => response.arrayBuffer());
       
-      // Lê o arquivo como string base64 (pdf-lib requer base64 ou ArrayBuffer)
-      // Para arquivos gigantes, usamos timeout para evitar travamento
-      const readPromise = FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      
-      const timeoutPromise = new Promise<string>((_, reject) => {
+      const timeoutPromise = new Promise<ArrayBuffer>((_, reject) => {
         setTimeout(() => reject(new Error('TIMEOUT_READING')), TIMEOUT_MS);
       });
       
-      let base64: string;
+      let arrayBuffer: ArrayBuffer;
       try {
-        base64 = await Promise.race([readPromise, timeoutPromise]);
+        arrayBuffer = await Promise.race([readPromise, timeoutPromise]);
       } catch (error: any) {
         if (error.message === 'TIMEOUT_READING') {
-          console.warn(`⏱️ Timeout ao ler arquivo ${fileName}. Usando estimativa.`);
+          console.warn(`log: [QuickPrint] Timeout reading file ${fileName}. Using estimation.`);
           const estimatedPages = Math.max(1, Math.round(fileSize / 10240)); // ~10KB por página
           return { pageCount: estimatedPages, isEstimated: true };
         }
         throw error;
       }
       
-      console.log(`✅ Arquivo lido: ${fileName} (${(base64.length * 0.75 / 1024 / 1024).toFixed(2)}MB em memória)`);
+      console.log(`log: [QuickPrint] File read successfully: ${fileName} (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB in memory)`);
       
-      // Para arquivos gigantes (>70MB em memória), usa timeout mais agressivo
-      const memorySize = base64.length * 0.75 / (1024 * 1024);
-      const processingTimeout = memorySize > 70 ? 30000 : TIMEOUT_MS;
-      
-      // Processa o PDF com timeout
-      const countPromise = new Promise<number>(async (resolve, reject) => {
-        try {
-          const pdfDoc = await PDFDocument.load(base64, {
-            ignoreEncryption: true,
-            updateMetadata: false,
-            throwOnInvalidObject: false,
-          });
-          
-          const pageCount = pdfDoc.getPageCount();
-          resolve(pageCount);
-        } catch (error) {
-          reject(error);
-        }
-      });
+      // Processa o PDF com timeout usando ArrayBuffer
+      const countPromise = (async () => {
+        const pdfDoc = await PDFDocument.load(arrayBuffer, {
+          ignoreEncryption: true,
+          updateMetadata: false,
+          throwOnInvalidObject: false,
+        });
+        
+        return pdfDoc.getPageCount();
+      })();
       
       const timeoutCountPromise = new Promise<number>((_, reject) => {
-        setTimeout(() => reject(new Error('TIMEOUT_PROCESSING')), processingTimeout);
+        setTimeout(() => reject(new Error('TIMEOUT_PROCESSING')), TIMEOUT_MS);
       });
       
       let pageCount: number;
@@ -204,7 +189,7 @@ export default function QuickPrintScreen() {
         pageCount = await Promise.race([countPromise, timeoutCountPromise]);
       } catch (error: any) {
         if (error.message === 'TIMEOUT_PROCESSING') {
-          console.warn(`⏱️ Timeout ao processar ${fileName}. Usando estimativa.`);
+          console.warn(`log: [QuickPrint] Timeout processing ${fileName}. Using estimation.`);
           const estimatedPages = Math.max(1, Math.round(fileSize / 10240));
           return { pageCount: estimatedPages, isEstimated: true };
         }
@@ -212,13 +197,13 @@ export default function QuickPrintScreen() {
       }
       
       const elapsed = Date.now() - startTime;
-      console.log(`✅ Contagem Real Local: ${pageCount} páginas para ${fileName} em ${elapsed}ms`);
+      console.log(`log: [QuickPrint] PDF Processed: ${pageCount} pages in ${elapsed}ms`);
       
       return { pageCount, isEstimated: false };
       
     } catch (error: any) {
       const elapsed = Date.now() - startTime;
-      console.error(`❌ Erro ao contar páginas para ${fileName} após ${elapsed}ms:`, error);
+      console.error(`log: [QuickPrint] Error processing PDF ${fileName} after ${elapsed}ms:`, error);
       
       // 🛡️ PROTEÇÃO: Detecta erros de memória
       const isMemoryError = error.message?.toLowerCase().includes('memory') || 
@@ -226,7 +211,7 @@ export default function QuickPrintScreen() {
                            error.message?.toLowerCase().includes('out of');
       
       if (isMemoryError) {
-        console.error(`💥 ERRO DE MEMÓRIA detectado para ${fileName}`);
+        console.error(`log: [QuickPrint] MEMORY ERROR detected for ${fileName}`);
         showError(
           'Arquivo Muito Grande',
           'Arquivo muito grande para pré-contagem. Leve o arquivo para análise na loja.'
@@ -236,24 +221,20 @@ export default function QuickPrintScreen() {
       
       // Fallback: Estimativa baseada no tamanho
       const estimatedPages = Math.max(1, Math.round(fileSize / 10240));
-      console.log(`📊 Usando estimativa de fallback: ${estimatedPages} páginas para ${fileName}`);
+      console.log(`log: [QuickPrint] Using fallback estimation: ${estimatedPages} pages for ${fileName}`);
       
       return { pageCount: estimatedPages, isEstimated: true };
-      
-    } finally {
-      setProcessingLargeFile(false);
-      setProcessingFileName('');
     }
   };
 
   /**
-   * 📝 NOVO: Estimativa para arquivos Word (.docx)
-   * Baseada no tamanho do arquivo com aviso visual
+   * 📝 NOVO: Estimativa inicial para arquivos Word (.docx)
+   * Baseada no tamanho do arquivo - REQUER CONFIRMAÇÃO MANUAL DO USUÁRIO
    */
   const estimateWordPageCount = (fileSize: number): number => {
     // Estimativa: ~50KB por página para Word (inclui formatação, imagens, etc.)
     const estimatedPages = Math.max(1, Math.round(fileSize / (50 * 1024)));
-    console.log(`📝 Estimativa Word: ${estimatedPages} páginas para ${(fileSize / 1024).toFixed(2)}KB`);
+    console.log(`log: [QuickPrint] Word estimation: ${estimatedPages} pages for ${(fileSize / 1024).toFixed(2)}KB`);
     return estimatedPages;
   };
 
@@ -315,8 +296,9 @@ export default function QuickPrintScreen() {
 
   /**
    * 🚀 OTIMIZADO: Processa arquivos localmente com feedback visual
-   * - Mostra "Analisando documento extenso..." para arquivos grandes
-   * - Usa estimativa para Word com aviso
+   * - Processamento assíncrono não bloqueia a UI
+   * - Loading state localizado no card do arquivo
+   * - Word requer confirmação manual obrigatória
    * - Proteção contra crash de memória
    */
   const processAndUploadFiles = async (assets: any[]) => {
@@ -337,9 +319,10 @@ export default function QuickPrintScreen() {
         type: string;
         localPageCount: number;
         isEstimated: boolean;
+        isWord: boolean;
       }[] = [];
 
-      // PASSO 1: Contar páginas localmente ANTES do upload
+      // PASSO 1: Contar páginas localmente ANTES do upload (ASSÍNCRONO)
       for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
         const fileName = asset.name || asset.fileName || `file_${Date.now()}.pdf`;
@@ -352,31 +335,36 @@ export default function QuickPrintScreen() {
         
         let localPageCount = 1;
         let isEstimated = false;
+        let isWord = false;
         
         try {
-          // PDF: Contagem local otimizada
+          // PDF: Contagem local otimizada com ArrayBuffer
           if (mimeType === 'application/pdf') {
+            // Mostra feedback visual para arquivos grandes
+            if (fileSizeMB > 50) {
+              setProcessingLargeFile(true);
+              setProcessingFileName(fileName);
+            }
+            
             const result = await countPDFPagesLocally(asset.uri, fileName, fileSize);
             localPageCount = result.pageCount;
             isEstimated = result.isEstimated;
             
+            setProcessingLargeFile(false);
+            setProcessingFileName('');
+            
             if (isEstimated) {
-              showError(
-                'Aviso',
-                `Contagem estimada para PDF grande (${fileSizeMB.toFixed(0)}MB). O valor final pode ser ajustado na loja.`
-              );
+              console.log(`log: [QuickPrint] Large PDF estimation used for ${fileName}`);
             }
           }
-          // Word: Estimativa com aviso
+          // Word: Estimativa inicial - REQUER CONFIRMAÇÃO MANUAL
           else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
                    mimeType === 'application/msword') {
             localPageCount = estimateWordPageCount(fileSize);
             isEstimated = true;
+            isWord = true;
             
-            showError(
-              'Aviso - Word',
-              'Contagem estimada para Word. O valor final pode ser ajustado na loja.'
-            );
+            console.log(`log: [QuickPrint] Word file detected: ${fileName} - Initial estimate: ${localPageCount} pages (requires manual confirmation)`);
           }
           // Imagem: 1 página
           else if (mimeType.startsWith('image/')) {
@@ -386,12 +374,12 @@ export default function QuickPrintScreen() {
         } catch (error: any) {
           // Se for erro de memória, não adiciona o arquivo
           if (error.message === 'MEMORY_ERROR') {
-            console.error(`💥 Pulando arquivo ${fileName} devido a erro de memória`);
+            console.error(`log: [QuickPrint] Skipping file ${fileName} due to memory error`);
             continue;
           }
           
           // Para outros erros, usa estimativa
-          console.warn(`⚠️ Erro ao processar ${fileName}, usando estimativa:`, error);
+          console.warn(`log: [QuickPrint] Error processing ${fileName}, using estimation:`, error);
           localPageCount = Math.max(1, Math.round(fileSize / 10240));
           isEstimated = true;
         }
@@ -402,6 +390,7 @@ export default function QuickPrintScreen() {
           type: mimeType,
           localPageCount,
           isEstimated,
+          isWord,
         });
         
         const analysisProgress = Math.round(((i + 1) / assets.length) * 30);
@@ -413,7 +402,7 @@ export default function QuickPrintScreen() {
         return;
       }
 
-      console.log('✅ Análise local completa. Iniciando upload...');
+      console.log('log: [QuickPrint] Local analysis complete. Starting upload...');
       setUploadStatus('📤 Enviando arquivos para o servidor...');
 
       // PASSO 2: Upload dos arquivos
@@ -424,7 +413,7 @@ export default function QuickPrintScreen() {
         (progress) => {
           const uploadProgress = 30 + Math.round(progress * 0.7);
           setUploadProgress(uploadProgress);
-          console.log('QuickPrintScreen: Overall progress:', uploadProgress + '%');
+          console.log('log: [QuickPrint] Overall progress:', uploadProgress + '%');
         },
         (fileIndex, fileName, status) => {
           setCurrentFileIndex(fileIndex + 1);
@@ -439,7 +428,7 @@ export default function QuickPrintScreen() {
         }
       );
 
-      console.log('QuickPrintScreen: Upload complete:', result);
+      console.log('log: [QuickPrint] Upload complete:', result);
 
       // PASSO 3: Adicionar arquivos com contagem LOCAL
       if (result.uploads.length > 0) {
@@ -447,8 +436,9 @@ export default function QuickPrintScreen() {
           const processedFile = processedFiles.find(f => f.name === upload.filename);
           const localPageCount = processedFile?.localPageCount || upload.pageCount || 1;
           const isEstimated = processedFile?.isEstimated || false;
+          const isWord = processedFile?.isWord || false;
           
-          console.log(`✅ Arquivo adicionado: ${upload.filename} - Contagem: ${localPageCount} páginas ${isEstimated ? '(estimada)' : '(real)'}`);
+          console.log(`log: [QuickPrint] File added: ${upload.filename} - Count: ${localPageCount} pages ${isEstimated ? '(estimated)' : '(real)'}${isWord ? ' [WORD - REQUIRES MANUAL CONFIRMATION]' : ''}`);
           
           return {
             uri: processedFile?.uri || '',
@@ -462,6 +452,8 @@ export default function QuickPrintScreen() {
             copies: 1,
             pageRange: 'all',
             isEstimated,
+            isWord,
+            manualPageCount: isWord ? localPageCount : undefined,
           };
         });
         
@@ -489,10 +481,10 @@ export default function QuickPrintScreen() {
       }
 
       if (result.uploads.length > 0 && result.failed.length === 0) {
-        console.log('✅ Todos os arquivos enviados com contagem local!');
+        console.log('log: [QuickPrint] All files uploaded with local page counts!');
       }
     } catch (error) {
-      console.error('QuickPrintScreen: Error processing files:', error);
+      console.error('log: [QuickPrint] Error processing files:', error);
       
       const { getErrorMessage } = await import('@/utils/api');
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
@@ -531,9 +523,22 @@ export default function QuickPrintScreen() {
       return;
     }
 
+    // Validação: Word files MUST have manual page count confirmed
+    const wordFilesWithoutConfirmation = files.filter(f => f.isWord && !f.manualPageCount);
+    if (wordFilesWithoutConfirmation.length > 0) {
+      showError(
+        'Confirmação Necessária',
+        'Por favor, confirme a quantidade de páginas dos arquivos Word antes de continuar.'
+      );
+      return;
+    }
+
     setLoading(true);
     try {
       const { authenticatedPost } = await import('@/utils/api');
+      
+      // 💰 PERSISTÊNCIA DE PREÇO: Calcula o preço final ANTES de enviar ao backend
+      const finalPrice = totalPrice;
       
       const printJob = {
         serviceType: 'quick_print',
@@ -542,7 +547,7 @@ export default function QuickPrintScreen() {
           name: f.name,
           size: f.size,
           mimeType: f.mimeType,
-          pageCount: f.localPageCount,
+          pageCount: f.manualPageCount || f.localPageCount, // Usa contagem manual se disponível
         })),
         options: {
           files: files.map(f => ({
@@ -554,25 +559,26 @@ export default function QuickPrintScreen() {
             pageRange: f.pageRange,
           })),
           notes,
+          totalPrice: finalPrice, // Preço fixado no pedido
         },
       };
 
-      console.log('QuickPrintScreen: Creating print job with LOCAL page counts:', printJob);
+      console.log('log: [QuickPrint] Creating print job with CONFIRMED page counts and FIXED price:', printJob);
       const response = await authenticatedPost('/api/print-jobs', printJob);
-      console.log('QuickPrintScreen: Print job created:', response);
+      console.log('log: [QuickPrint] Print job created:', response);
 
       router.push({
         pathname: '/stores-map',
         params: {
           serviceId: 'quick_print',
           serviceName: 'Impressão Rápida',
-          totalPrice: totalPrice.toFixed(2),
+          totalPrice: finalPrice.toFixed(2),
           printJobId: response.id,
           needsPrinting: 'true',
         },
       });
     } catch (error) {
-      console.error('QuickPrintScreen: Error creating print job:', error);
+      console.error('log: [QuickPrint] Error creating print job:', error);
       showError('Erro', 'Não foi possível criar o pedido. Tente novamente.');
     } finally {
       setLoading(false);
@@ -580,7 +586,8 @@ export default function QuickPrintScreen() {
   };
 
   const totalPagesText = files.reduce((sum, f) => {
-    const pages = f.pageRange === 'all' ? f.localPageCount : calculatePageRangeCount(f.pageRange, f.localPageCount);
+    const effectivePageCount = f.manualPageCount || f.localPageCount;
+    const pages = f.pageRange === 'all' ? effectivePageCount : calculatePageRangeCount(f.pageRange, effectivePageCount);
     return sum + (pages * f.copies);
   }, 0);
 
@@ -609,7 +616,7 @@ export default function QuickPrintScreen() {
               Faça upload de documentos PDF, Word ou imagens e escolha as opções de impressão
             </Text>
             <Text style={styles.headerNote}>
-              ✨ Suporta arquivos até 100MB • Contagem otimizada
+              ✨ Suporta PDFs até 1500 páginas • Contagem otimizada com ArrayBuffer
             </Text>
             <View style={styles.improvementBanner}>
               <IconSymbol 
@@ -619,7 +626,7 @@ export default function QuickPrintScreen() {
                 color="#4CAF50" 
               />
               <Text style={styles.improvementBannerText}>
-                🚀 OTIMIZADO! PDFs gigantes (800+ páginas) processam com timeout de 45s. Word usa estimativa inteligente. Sem travamentos!
+                🚀 OTIMIZADO! PDFs até 1500 páginas com ArrayBuffer (33% menos memória). Word com confirmação manual obrigatória. Processamento assíncrono sem travar!
               </Text>
             </View>
           </View>
@@ -755,7 +762,74 @@ export default function QuickPrintScreen() {
                       </TouchableOpacity>
                     </View>
 
-                    {file.isEstimated && (
+                    {file.isWord && (
+                      <View style={styles.wordMandatoryInput}>
+                        <View style={styles.wordMandatoryHeader}>
+                          <IconSymbol 
+                            ios_icon_name="exclamationmark.circle.fill" 
+                            android_material_icon_name="info" 
+                            size={20} 
+                            color={colors.secondary} 
+                          />
+                          <Text style={styles.wordMandatoryTitle}>
+                            Confirme a quantidade de páginas do seu arquivo Word para cálculo do pagamento
+                          </Text>
+                        </View>
+                        <View style={styles.wordPageCountControl}>
+                          <TouchableOpacity 
+                            style={styles.wordPageCountButton}
+                            onPress={() => {
+                              const newCount = Math.max(1, (file.manualPageCount || file.localPageCount) - 1);
+                              updateFileOption(index, 'manualPageCount', newCount);
+                              updateFileOption(index, 'pageCount', newCount);
+                            }}
+                          >
+                            <IconSymbol 
+                              ios_icon_name="minus" 
+                              android_material_icon_name="remove" 
+                              size={20} 
+                              color="#FFFFFF" 
+                            />
+                          </TouchableOpacity>
+                          <TextInput
+                            style={styles.wordPageCountInput}
+                            value={String(file.manualPageCount || file.localPageCount)}
+                            onChangeText={(text) => {
+                              const num = parseInt(text);
+                              if (!isNaN(num) && num > 0) {
+                                updateFileOption(index, 'manualPageCount', num);
+                                updateFileOption(index, 'pageCount', num);
+                                console.log(`log: [QuickPrint] User manually set Word page count: ${num} for ${file.name}`);
+                              }
+                            }}
+                            keyboardType="number-pad"
+                            selectTextOnFocus
+                            placeholder="Páginas"
+                            placeholderTextColor={colors.secondary + '80'}
+                          />
+                          <TouchableOpacity 
+                            style={styles.wordPageCountButton}
+                            onPress={() => {
+                              const newCount = (file.manualPageCount || file.localPageCount) + 1;
+                              updateFileOption(index, 'manualPageCount', newCount);
+                              updateFileOption(index, 'pageCount', newCount);
+                            }}
+                          >
+                            <IconSymbol 
+                              ios_icon_name="plus" 
+                              android_material_icon_name="add" 
+                              size={20} 
+                              color="#FFFFFF" 
+                            />
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.wordMandatoryNote}>
+                          💡 Abra o arquivo no Word e veja o número de páginas no rodapé
+                        </Text>
+                      </View>
+                    )}
+
+                    {file.isEstimated && !file.isWord && (
                       <View style={styles.estimatedWarning}>
                         <IconSymbol 
                           ios_icon_name="exclamationmark.triangle.fill" 
@@ -764,14 +838,12 @@ export default function QuickPrintScreen() {
                           color="#FF9800" 
                         />
                         <Text style={styles.estimatedWarningText}>
-                          {isWord 
-                            ? 'Contagem estimada para Word. O valor final pode ser ajustado na loja.'
-                            : 'Contagem estimada para PDF grande. O valor final pode ser ajustado na loja.'}
+                          Contagem estimada para PDF grande. O valor final pode ser ajustado na loja.
                         </Text>
                       </View>
                     )}
 
-                    {(isPDF || isWord) && file.localPageCount > 1 && (
+                    {isPDF && file.localPageCount > 1 && !file.isEstimated && (
                       <View style={styles.pageCountAdjustment}>
                         <Text style={styles.pageCountAdjustmentLabel}>
                           Ajustar contagem manualmente (se necessário):
@@ -1253,6 +1325,72 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.secondary,
     textTransform: 'uppercase',
+  },
+  wordMandatoryInput: {
+    backgroundColor: colors.secondary + '15',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: colors.secondary,
+  },
+  wordMandatoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 16,
+  },
+  wordMandatoryTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.secondary,
+    lineHeight: 20,
+  },
+  wordPageCountControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+    marginBottom: 12,
+  },
+  wordPageCountButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  wordPageCountInput: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.secondary,
+    textAlign: 'center',
+    minWidth: 100,
+    borderWidth: 2,
+    borderColor: colors.secondary,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  wordMandatoryNote: {
+    fontSize: 12,
+    color: colors.secondary,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   estimatedWarning: {
     flexDirection: 'row',

@@ -14,9 +14,13 @@ export default function OrderSuccessScreen() {
 
   const orderId = params.orderId as string;
 
-  useEffect(() => {
+  const loadOrderDataCallback = React.useCallback(() => {
     loadOrderData();
-  }, []);
+  }, [orderId]);
+
+  useEffect(() => {
+    loadOrderDataCallback();
+  }, [loadOrderDataCallback]);
 
   const loadOrderData = async () => {
     try {
