@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Modal } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,20 +19,7 @@ export default function OrdersScreen() {
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const loadOrdersCallback = React.useCallback(() => {
-    if (user) {
-      console.log('OrdersScreen: Loading orders for user', user.id);
-      loadOrders();
-    } else {
-      setLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    loadOrdersCallback();
-  }, [loadOrdersCallback]);
-
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     try {
       console.log('[OrdersScreen] Fetching orders from API...');
       const { authenticatedGet } = await import('@/utils/api');
@@ -50,7 +37,7 @@ export default function OrdersScreen() {
         serviceName: order.serviceName,
         status: order.status,
         customerData: order.customerData,
-        totalPrice: parseFloat(order.totalPrice),
+        totalPrice: parseFloat(order.totalPrice) || 0,
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
         type: 'order',
@@ -63,7 +50,7 @@ export default function OrdersScreen() {
         serviceName: getServiceNameFromType(job.serviceType),
         status: job.status,
         customerData: null,
-        totalPrice: parseFloat(job.totalPrice),
+        totalPrice: parseFloat(job.totalPrice) || 0,
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,
         type: 'print_job',
@@ -85,7 +72,16 @@ export default function OrdersScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      console.log('OrdersScreen: Loading orders for user', user.id);
+      loadOrders();
+    } else {
+      setLoading(false);
+    }
+  }, [user, loadOrders]);
 
   const getServiceNameFromType = (type: string) => {
     const names: Record<string, string> = {
@@ -176,8 +172,13 @@ export default function OrdersScreen() {
     return statusTexts[status] || status;
   };
 
-  const formatPrice = (price: number) => {
-    const priceFormatted = price.toFixed(2).replace('.', ',');
+  const formatPrice = (price: number | string) => {
+    // 🔥 FIX: Garante que price é um número antes de chamar toFixed
+    const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+    if (isNaN(numPrice) || numPrice === null || numPrice === undefined) {
+      return '0,00';
+    }
+    const priceFormatted = numPrice.toFixed(2).replace('.', ',');
     return priceFormatted;
   };
 

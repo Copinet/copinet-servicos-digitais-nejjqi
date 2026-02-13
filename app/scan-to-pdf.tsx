@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Platform, Image, TextInput } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,29 +21,15 @@ export default function ScanToPDFScreen() {
   const [processing, setProcessing] = useState(false);
   const [pdfMode, setPdfMode] = useState<'single' | 'multiple'>('single');
   const [printOption, setPrintOption] = useState<'pdf_only' | 'pdf_print'>('pdf_only');
-  const [colorMode, setColorMode] = useState<'bw' | 'color'>('color'); // 🎨 Padrão: Colorido/Original
+  const [colorMode, setColorMode] = useState<'bw' | 'color'>('color');
   const [cameraPermission, setCameraPermission] = useState<boolean | null>(null);
   const [totalPrice, setTotalPrice] = useState(0);
   const [pricing, setPricing] = useState<any>(null);
   const [errorModal, setErrorModal] = useState({ visible: false, title: '', message: '' });
-  const [pdfFileName, setPdfFileName] = useState(''); // 📝 Nome do arquivo PDF
+  const [pdfFileName, setPdfFileName] = useState('');
+  const [previewModal, setPreviewModal] = useState({ visible: false, uri: '', index: 0 });
 
-  useEffect(() => {
-    console.log('ScanToPDFScreen: Loading pricing');
-    loadPricing();
-    requestCameraPermission();
-  }, []);
-
-  useEffect(() => {
-    calculateTotalPrice();
-  }, [pages, printOption, colorMode, pricing]);
-
-  const requestCameraPermission = async () => {
-    const { status } = await Camera.requestCameraPermissionsAsync();
-    setCameraPermission(status === 'granted');
-  };
-
-  const loadPricing = async () => {
+  const loadPricing = useCallback(async () => {
     try {
       const { apiGet } = await import('@/utils/api');
       const data = await apiGet('/api/pricing');
@@ -53,17 +39,31 @@ export default function ScanToPDFScreen() {
       console.error('ScanToPDFScreen: Error loading pricing:', error);
       showError('Erro', 'Não foi possível carregar os preços. Tente novamente.');
     }
-  };
+  }, []);
 
-  const calculateTotalPrice = () => {
+  const calculateTotalPrice = useCallback(() => {
     if (!pricing || !pricing.scan_to_pdf) {
       setTotalPrice(0);
       return;
     }
 
-    // 💰 CÁLCULO AUTOMÁTICO: R$ 0,50 por página (sempre colorido/original)
     const pricePerPage = 0.50;
     setTotalPrice(pricePerPage * pages.length);
+  }, [pages, pricing]);
+
+  useEffect(() => {
+    console.log('ScanToPDFScreen: Loading pricing');
+    loadPricing();
+    requestCameraPermission();
+  }, [loadPricing]);
+
+  useEffect(() => {
+    calculateTotalPrice();
+  }, [calculateTotalPrice]);
+
+  const requestCameraPermission = async () => {
+    const { status } = await Camera.requestCameraPermissionsAsync();
+    setCameraPermission(status === 'granted');
   };
 
   const showError = (title: string, message: string) => {
@@ -90,7 +90,6 @@ export default function ScanToPDFScreen() {
         };
         setPages(prev => [...prev, newPage]);
         
-        // Auto-process the page
         await processPage(newPage);
       }
     } catch (error) {
@@ -114,7 +113,6 @@ export default function ScanToPDFScreen() {
         }));
         setPages(prev => [...prev, ...newPages]);
         
-        // Auto-process all pages
         for (const page of newPages) {
           await processPage(page);
         }
@@ -128,7 +126,6 @@ export default function ScanToPDFScreen() {
   const processPage = async (page: ScannedPage) => {
     setProcessing(true);
     try {
-      // Upload the image first
       const { uploadFile, authenticatedPost, getErrorMessage } = await import('@/utils/api');
       
       const file = {
@@ -146,11 +143,7 @@ export default function ScanToPDFScreen() {
 
       console.log('ScanToPDFScreen: Page uploaded:', uploadResult);
 
-      // Process with AI to enhance document (with timeout and fallback)
-      console.log('ScanToPDFScreen: Processing with AI...');
-      
       try {
-        // Create a timeout promise (60 seconds for AI processing)
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('TIMEOUT')), 60000);
         });
@@ -168,16 +161,13 @@ export default function ScanToPDFScreen() {
 
         console.log('ScanToPDFScreen: Page processed:', processResponse);
 
-        // Check if processing was successful
         if (processResponse.success && processResponse.processedImageUrl) {
-          // Update the page with processed version
           setPages(prev => prev.map(p => 
             p.uri === page.uri 
               ? { ...p, processed: true, processedUrl: processResponse.processedImageUrl }
               : p
           ));
         } else {
-          // Fallback: Use original image if AI processing failed
           console.warn('ScanToPDFScreen: AI processing failed, using original image');
           setPages(prev => prev.map(p => 
             p.uri === page.uri 
@@ -186,7 +176,6 @@ export default function ScanToPDFScreen() {
           ));
         }
       } catch (aiError: any) {
-        // Fallback: Use original image if AI processing times out or fails
         console.warn('ScanToPDFScreen: AI processing error, using original image:', aiError);
         
         setPages(prev => prev.map(p => 
@@ -200,7 +189,6 @@ export default function ScanToPDFScreen() {
       const { getErrorMessage } = await import('@/utils/api');
       showError('Erro', getErrorMessage('PROCESSING_FAILED'));
       
-      // Still mark as processed with original URI so user can continue
       setPages(prev => prev.map(p => 
         p.uri === page.uri 
           ? { ...p, processed: true, processedUrl: page.uri }
@@ -240,7 +228,6 @@ export default function ScanToPDFScreen() {
     try {
       const { authenticatedPost } = await import('@/utils/api');
       
-      // 📝 Gera nome do arquivo se não fornecido
       const finalFileName = pdfFileName.trim() || `Documento_Escaneado_${Date.now()}`;
       
       const printJob = {
@@ -255,8 +242,8 @@ export default function ScanToPDFScreen() {
         options: {
           pdfMode,
           pdfFileName: finalFileName,
-          colorMode: 'color', // 🎨 Sempre colorido/original
-          pricePerPage: 0.50, // 💰 R$ 0,50 por página
+          colorMode: 'color',
+          pricePerPage: 0.50,
         },
       };
 
@@ -271,6 +258,7 @@ export default function ScanToPDFScreen() {
           serviceName: 'Escanear para PDF',
           totalPrice: totalPrice.toFixed(2),
           printJobId: response.id,
+          isDigitalOnly: 'true',
         },
       });
     } catch (error) {
@@ -392,12 +380,15 @@ export default function ScanToPDFScreen() {
             <>
               <View style={styles.pagesSection}>
                 <Text style={styles.sectionTitle}>Páginas Escaneadas ({pages.length})</Text>
-                <Text style={styles.sectionSubtitle}>Arraste para reordenar</Text>
+                <Text style={styles.sectionSubtitle}>Toque na imagem para visualizar • Arraste para reordenar</Text>
                 
                 <View style={styles.pagesGrid}>
                   {pages.map((page, index) => (
                     <View key={index} style={styles.pageContainer}>
-                      <View style={styles.pageCard}>
+                      <TouchableOpacity 
+                        style={styles.pageCard}
+                        onPress={() => setPreviewModal({ visible: true, uri: page.processed && page.processedUrl ? page.processedUrl : page.uri, index })}
+                      >
                         <Image 
                           source={{ uri: page.processed && page.processedUrl ? page.processedUrl : page.uri }} 
                           style={styles.pageImage}
@@ -416,7 +407,7 @@ export default function ScanToPDFScreen() {
                             />
                           </View>
                         )}
-                      </View>
+                      </TouchableOpacity>
                       <View style={styles.pageActions}>
                         {index > 0 && (
                           <TouchableOpacity 
@@ -526,6 +517,44 @@ export default function ScanToPDFScreen() {
             >
               <Text style={styles.modalButtonText}>OK</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={previewModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewModal({ ...previewModal, visible: false })}
+      >
+        <View style={styles.previewModalOverlay}>
+          <View style={styles.previewModalContent}>
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewTitle}>Página {previewModal.index + 1}</Text>
+              <TouchableOpacity 
+                onPress={() => setPreviewModal({ ...previewModal, visible: false })}
+                style={styles.previewCloseButton}
+              >
+                <IconSymbol 
+                  ios_icon_name="xmark" 
+                  android_material_icon_name="close" 
+                  size={24} 
+                  color="#FFFFFF" 
+                />
+              </TouchableOpacity>
+            </View>
+            <ScrollView 
+              style={styles.previewScrollView}
+              contentContainerStyle={styles.previewScrollContent}
+              maximumZoomScale={3}
+              minimumZoomScale={1}
+            >
+              <Image 
+                source={{ uri: previewModal.uri }} 
+                style={styles.previewImage}
+                resizeMode="contain"
+              />
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -668,8 +697,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: 12,
     overflow: 'hidden',
-    aspectRatio: 3/4,
+    aspectRatio: 0.707, // A4 ratio (1/√2) for better document preview
     position: 'relative',
+    borderWidth: 2,
+    borderColor: colors.border,
   },
   pageImage: {
     width: '100%',
@@ -810,5 +841,47 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  previewModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+  },
+  previewModalContent: {
+    flex: 1,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+  },
+  previewTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  previewCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewScrollView: {
+    flex: 1,
+  },
+  previewScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 400,
   },
 });

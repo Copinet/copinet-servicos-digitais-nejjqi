@@ -1,65 +1,170 @@
 
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Share } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Share, Platform, Linking } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '@/styles/commonStyles';
 import { IconSymbol } from '@/components/IconSymbol';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 
 export default function OrderSuccessScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const [loading, setLoading] = useState(true);
   const [orderData, setOrderData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   const orderId = params.orderId as string;
+  const isDigitalOnly = params.isDigitalOnly === 'true';
 
-  const loadOrderDataCallback = React.useCallback(() => {
-    loadOrderData();
+  const loadOrderData = useCallback(async () => {
+    if (!orderId) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { authenticatedGet } = await import('@/utils/api');
+      const data = await authenticatedGet(`/api/print-jobs/${orderId}`);
+      setOrderData(data);
+      console.log('OrderSuccessScreen: Order data loaded:', data);
+    } catch (error) {
+      console.error('OrderSuccessScreen: Error loading order data:', error);
+    } finally {
+      setLoading(false);
+    }
   }, [orderId]);
 
   useEffect(() => {
-    loadOrderDataCallback();
-  }, [loadOrderDataCallback]);
+    loadOrderData();
+  }, [loadOrderData]);
 
-  const loadOrderData = async () => {
+  const handleDownload = async () => {
+    if (!orderData || !orderData.pdfUrl) {
+      console.error('OrderSuccessScreen: No PDF URL available');
+      return;
+    }
+
+    setDownloading(true);
     try {
-      const { authenticatedGet } = await import('@/utils/api');
-      const response = await authenticatedGet(`/api/orders/${orderId}`);
-      setOrderData(response);
-      console.log('OrderSuccessScreen: Order data loaded:', response);
+      console.log('OrderSuccessScreen: Downloading PDF:', orderData.pdfUrl);
+      
+      const fileName = orderData.options?.pdfFileName || `Documento_${Date.now()}.pdf`;
+      const fileUri = FileSystem.documentDirectory + fileName;
+      
+      const downloadResult = await FileSystem.downloadAsync(
+        orderData.pdfUrl,
+        fileUri
+      );
+
+      console.log('OrderSuccessScreen: PDF downloaded:', downloadResult.uri);
+
+      if (Platform.OS === 'ios' || Platform.OS === 'android') {
+        await Sharing.shareAsync(downloadResult.uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Salvar PDF',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        const link = document.createElement('a');
+        link.href = orderData.pdfUrl;
+        link.download = fileName;
+        link.click();
+      }
     } catch (error) {
-      console.error('OrderSuccessScreen: Error loading order:', error);
+      console.error('OrderSuccessScreen: Error downloading PDF:', error);
     } finally {
-      setLoading(false);
+      setDownloading(false);
     }
   };
 
   const handleShare = async () => {
-    if (!orderData) return;
+    if (!orderData || !orderData.pdfUrl) {
+      console.error('OrderSuccessScreen: No PDF URL available');
+      return;
+    }
+
+    setSharing(true);
+    try {
+      console.log('OrderSuccessScreen: Sharing PDF:', orderData.pdfUrl);
+      
+      const fileName = orderData.options?.pdfFileName || `Documento_${Date.now()}.pdf`;
+      const message = `Confira o documento: ${fileName}`;
+      
+      if (Platform.OS === 'web') {
+        await Share.share({
+          title: fileName,
+          message: message,
+          url: orderData.pdfUrl,
+        });
+      } else {
+        const fileUri = FileSystem.documentDirectory + fileName;
+        const downloadResult = await FileSystem.downloadAsync(
+          orderData.pdfUrl,
+          fileUri
+        );
+
+        await Sharing.shareAsync(downloadResult.uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Compartilhar PDF',
+          UTI: 'com.adobe.pdf',
+        });
+      }
+    } catch (error) {
+      console.error('OrderSuccessScreen: Error sharing PDF:', error);
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const handleShareWhatsApp = async () => {
+    if (!orderData || !orderData.pdfUrl) {
+      console.error('OrderSuccessScreen: No PDF URL available');
+      return;
+    }
 
     try {
-      const message = `Pedido #${orderData.orderNumber}\n\n` +
-        `Serviço: ${orderData.serviceName}\n` +
-        `Local: ${orderData.partnerName}\n` +
-        `Endereço: ${orderData.partnerAddress}\n` +
-        `Horário Estimado: ${orderData.estimatedReadyTime}\n\n` +
-        `Apresente este código QR ao retirar: ${orderData.qrCode}`;
-
-      await Share.share({
-        message,
-      });
+      const fileName = orderData.options?.pdfFileName || `Documento_${Date.now()}.pdf`;
+      const message = `Confira o documento: ${fileName}\n${orderData.pdfUrl}`;
+      const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+      
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        console.error('OrderSuccessScreen: WhatsApp not installed');
+      }
     } catch (error) {
-      console.error('OrderSuccessScreen: Error sharing:', error);
+      console.error('OrderSuccessScreen: Error sharing to WhatsApp:', error);
+    }
+  };
+
+  const handleShareEmail = async () => {
+    if (!orderData || !orderData.pdfUrl) {
+      console.error('OrderSuccessScreen: No PDF URL available');
+      return;
+    }
+
+    try {
+      const fileName = orderData.options?.pdfFileName || `Documento_${Date.now()}.pdf`;
+      const subject = `Documento: ${fileName}`;
+      const body = `Confira o documento em anexo:\n\n${orderData.pdfUrl}`;
+      const emailUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      
+      await Linking.openURL(emailUrl);
+    } catch (error) {
+      console.error('OrderSuccessScreen: Error sharing to Email:', error);
     }
   };
 
   const handleGoHome = () => {
-    router.replace('/');
+    router.push('/');
   };
 
   const handleViewOrders = () => {
-    router.replace('/(tabs)/orders');
+    router.push('/(tabs)/orders');
   };
 
   if (loading) {
@@ -67,52 +172,18 @@ export default function OrderSuccessScreen() {
       <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
         <Stack.Screen 
           options={{
-            title: 'Processando',
+            title: 'Pedido Confirmado',
             headerShown: true,
+            headerBackTitle: 'Voltar',
           }}
         />
         <View style={[commonStyles.container, styles.loadingContainer]}>
           <ActivityIndicator size="large" color={colors.secondary} />
-          <Text style={styles.loadingText}>Processando seu pedido...</Text>
+          <Text style={styles.loadingText}>Carregando detalhes do pedido...</Text>
         </View>
       </SafeAreaView>
     );
   }
-
-  if (!orderData) {
-    return (
-      <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
-        <Stack.Screen 
-          options={{
-            title: 'Erro',
-            headerShown: true,
-          }}
-        />
-        <View style={[commonStyles.container, styles.errorContainer]}>
-          <IconSymbol 
-            ios_icon_name="exclamationmark.triangle.fill" 
-            android_material_icon_name="error" 
-            size={80} 
-            color={colors.error} 
-          />
-          <Text style={styles.errorTitle}>Erro ao Carregar Pedido</Text>
-          <Text style={styles.errorText}>
-            Não foi possível carregar os detalhes do pedido. Tente novamente mais tarde.
-          </Text>
-          <TouchableOpacity style={styles.button} onPress={handleGoHome}>
-            <Text style={styles.buttonText}>Voltar para Início</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const orderNumberText = orderData.orderNumber || 'N/A';
-  const serviceNameText = orderData.serviceName || 'Serviço';
-  const partnerNameText = orderData.partnerName || 'Parceiro';
-  const partnerAddressText = orderData.partnerAddress || 'Endereço não disponível';
-  const estimatedReadyTimeText = orderData.estimatedReadyTime || 'A calcular';
-  const qrCodeText = orderData.qrCode || '';
 
   return (
     <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
@@ -120,135 +191,182 @@ export default function OrderSuccessScreen() {
         options={{
           title: 'Pedido Confirmado',
           headerShown: true,
-          headerLeft: () => null,
+          headerBackTitle: 'Voltar',
         }}
       />
       <ScrollView style={commonStyles.container} contentContainerStyle={styles.scrollContent}>
         <View style={commonStyles.section}>
-          <View style={styles.successHeader}>
-            <View style={styles.successIconContainer}>
+          <View style={styles.successCard}>
+            <View style={styles.successIcon}>
               <IconSymbol 
                 ios_icon_name="checkmark.circle.fill" 
                 android_material_icon_name="check-circle" 
-                size={100} 
+                size={80} 
                 color={colors.success} 
               />
             </View>
-            <Text style={styles.successTitle}>Impressão Enviada!</Text>
+            <Text style={styles.successTitle}>Pedido Confirmado!</Text>
             <Text style={styles.successSubtitle}>
-              Seu pedido foi confirmado e enviado para impressão.
+              {isDigitalOnly 
+                ? 'Seu documento foi processado com sucesso'
+                : 'Seu pedido foi enviado para a loja selecionada'}
             </Text>
+            {orderId && (
+              <View style={styles.orderIdBadge}>
+                <Text style={styles.orderIdLabel}>Pedido #</Text>
+                <Text style={styles.orderIdValue}>{orderId.slice(0, 8)}</Text>
+              </View>
+            )}
           </View>
 
-          <View style={styles.qrCodeCard}>
-            <Text style={styles.qrCodeTitle}>Código QR do Pedido</Text>
-            <View style={styles.qrCodePlaceholder}>
-              <IconSymbol 
-                ios_icon_name="qrcode" 
-                android_material_icon_name="qr-code" 
-                size={200} 
-                color={colors.secondary} 
-              />
-              <Text style={styles.qrCodeText}>{qrCodeText}</Text>
-            </View>
-            <Text style={styles.qrCodeSubtext}>
-              Apresente este código ao retirar sua impressão
-            </Text>
-          </View>
+          {isDigitalOnly && orderData && orderData.pdfUrl && (
+            <View style={styles.digitalSection}>
+              <Text style={styles.sectionTitle}>Seu Documento Está Pronto!</Text>
+              <Text style={styles.sectionSubtitle}>
+                Faça o download ou compartilhe seu PDF
+              </Text>
 
-          <View style={styles.detailsCard}>
-            <View style={styles.detailRow}>
-              <IconSymbol 
-                ios_icon_name="number" 
-                android_material_icon_name="tag" 
-                size={24} 
-                color={colors.secondary} 
-              />
-              <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Número do Pedido</Text>
-                <Text style={styles.detailValue}>{orderNumberText}</Text>
+              <View style={styles.actionButtons}>
+                <TouchableOpacity 
+                  style={styles.primaryButton}
+                  onPress={handleDownload}
+                  disabled={downloading}
+                >
+                  {downloading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <IconSymbol 
+                        ios_icon_name="arrow.down.circle.fill" 
+                        android_material_icon_name="download" 
+                        size={24} 
+                        color="#FFFFFF" 
+                      />
+                      <Text style={styles.primaryButtonText}>Baixar PDF</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.secondaryButton}
+                  onPress={handleShare}
+                  disabled={sharing}
+                >
+                  {sharing ? (
+                    <ActivityIndicator size="small" color={colors.secondary} />
+                  ) : (
+                    <>
+                      <IconSymbol 
+                        ios_icon_name="square.and.arrow.up" 
+                        android_material_icon_name="share" 
+                        size={24} 
+                        color={colors.secondary} 
+                      />
+                      <Text style={styles.secondaryButtonText}>Compartilhar</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.shareOptions}>
+                <Text style={styles.shareOptionsTitle}>Compartilhar via:</Text>
+                <View style={styles.shareButtons}>
+                  <TouchableOpacity 
+                    style={styles.shareButton}
+                    onPress={handleShareWhatsApp}
+                  >
+                    <IconSymbol 
+                      ios_icon_name="message.fill" 
+                      android_material_icon_name="chat" 
+                      size={28} 
+                      color="#25D366" 
+                    />
+                    <Text style={styles.shareButtonText}>WhatsApp</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={styles.shareButton}
+                    onPress={handleShareEmail}
+                  >
+                    <IconSymbol 
+                      ios_icon_name="envelope.fill" 
+                      android_material_icon_name="email" 
+                      size={28} 
+                      color={colors.secondary} 
+                    />
+                    <Text style={styles.shareButtonText}>Email</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
+          )}
 
-            <View style={styles.detailRow}>
-              <IconSymbol 
-                ios_icon_name="printer.fill" 
-                android_material_icon_name="print" 
-                size={24} 
-                color={colors.secondary} 
-              />
-              <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Serviço</Text>
-                <Text style={styles.detailValue}>{serviceNameText}</Text>
+          {!isDigitalOnly && (
+            <View style={styles.nextStepsCard}>
+              <Text style={styles.nextStepsTitle}>Próximos Passos</Text>
+              <View style={styles.stepItem}>
+                <View style={styles.stepNumber}>
+                  <Text style={styles.stepNumberText}>1</Text>
+                </View>
+                <View style={styles.stepContent}>
+                  <Text style={styles.stepTitle}>Aguarde a Confirmação</Text>
+                  <Text style={styles.stepDescription}>
+                    A loja irá revisar seu pedido e confirmar em breve
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.stepItem}>
+                <View style={styles.stepNumber}>
+                  <Text style={styles.stepNumberText}>2</Text>
+                </View>
+                <View style={styles.stepContent}>
+                  <Text style={styles.stepTitle}>Acompanhe o Status</Text>
+                  <Text style={styles.stepDescription}>
+                    Você receberá notificações sobre o andamento do pedido
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.stepItem}>
+                <View style={styles.stepNumber}>
+                  <Text style={styles.stepNumberText}>3</Text>
+                </View>
+                <View style={styles.stepContent}>
+                  <Text style={styles.stepTitle}>Retire na Loja</Text>
+                  <Text style={styles.stepDescription}>
+                    Quando estiver pronto, vá até a loja para retirar
+                  </Text>
+                </View>
               </View>
             </View>
+          )}
 
-            <View style={styles.detailRow}>
-              <IconSymbol 
-                ios_icon_name="building.2.fill" 
-                android_material_icon_name="store" 
-                size={24} 
-                color={colors.secondary} 
-              />
-              <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Local de Retirada</Text>
-                <Text style={styles.detailValue}>{partnerNameText}</Text>
-                <Text style={styles.detailAddress}>{partnerAddressText}</Text>
-              </View>
-            </View>
-
-            <View style={styles.detailRow}>
-              <IconSymbol 
-                ios_icon_name="clock.fill" 
-                android_material_icon_name="schedule" 
-                size={24} 
-                color={colors.secondary} 
-              />
-              <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Horário Estimado</Text>
-                <Text style={styles.detailValue}>{estimatedReadyTimeText}</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.infoCard}>
-            <IconSymbol 
-              ios_icon_name="info.circle.fill" 
-              android_material_icon_name="info" 
-              size={24} 
-              color={colors.accent} 
-            />
-            <Text style={styles.infoText}>
-              Você receberá uma notificação quando sua impressão estiver pronta para retirada. 
-              Não esqueça de levar um documento de identificação.
-            </Text>
-          </View>
-
-          <View style={styles.actions}>
-            <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
-              <IconSymbol 
-                ios_icon_name="square.and.arrow.up" 
-                android_material_icon_name="share" 
-                size={24} 
-                color={colors.secondary} 
-              />
-              <Text style={styles.shareButtonText}>Compartilhar</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.ordersButton} onPress={handleViewOrders}>
+          <View style={styles.navigationButtons}>
+            <TouchableOpacity 
+              style={styles.navButton}
+              onPress={handleViewOrders}
+            >
               <IconSymbol 
                 ios_icon_name="list.bullet" 
-                android_material_icon_name="list" 
+                android_material_icon_name="receipt" 
+                size={24} 
+                color={colors.secondary} 
+              />
+              <Text style={styles.navButtonText}>Ver Meus Pedidos</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.navButton, styles.navButtonPrimary]}
+              onPress={handleGoHome}
+            >
+              <IconSymbol 
+                ios_icon_name="house.fill" 
+                android_material_icon_name="home" 
                 size={24} 
                 color="#FFFFFF" 
               />
-              <Text style={styles.ordersButtonText}>Ver Meus Pedidos</Text>
+              <Text style={[styles.navButtonText, styles.navButtonTextPrimary]}>Voltar ao Início</Text>
             </TouchableOpacity>
           </View>
-
-          <TouchableOpacity style={styles.homeButton} onPress={handleGoHome}>
-            <Text style={styles.homeButtonText}>Voltar para Início</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -263,46 +381,27 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
   },
   loadingText: {
     fontSize: 16,
     color: colors.textSecondary,
     marginTop: 16,
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  successCard: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 32,
     alignItems: 'center',
-    padding: 24,
-  },
-  errorTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.text,
-    marginTop: 24,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  errorText: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 32,
-  },
-  successHeader: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  successIconContainer: {
     marginBottom: 24,
   },
+  successIcon: {
+    marginBottom: 20,
+  },
   successTitle: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 12,
+    marginBottom: 8,
     textAlign: 'center',
   },
   successSubtitle: {
@@ -310,151 +409,188 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 24,
+    marginBottom: 20,
   },
-  qrCodeCard: {
+  orderIdBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    gap: 8,
+  },
+  orderIdLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  orderIdValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.secondary,
+    fontFamily: 'monospace',
+  },
+  digitalSection: {
     backgroundColor: colors.card,
     borderRadius: 20,
     padding: 24,
-    alignItems: 'center',
     marginBottom: 24,
   },
-  qrCodeTitle: {
-    fontSize: 20,
+  sectionTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  sectionSubtitle: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  actionButtons: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  primaryButton: {
+    backgroundColor: colors.secondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  primaryButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  secondaryButton: {
+    backgroundColor: 'transparent',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    gap: 10,
+    borderWidth: 2,
+    borderColor: colors.secondary,
+  },
+  secondaryButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.secondary,
+  },
+  shareOptions: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: 24,
+  },
+  shareOptionsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  shareButtons: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  shareButton: {
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: colors.background,
+    borderRadius: 16,
+    minWidth: 120,
+  },
+  shareButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 8,
+  },
+  nextStepsCard: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 24,
+  },
+  nextStepsTitle: {
+    fontSize: 22,
     fontWeight: '700',
     color: colors.text,
     marginBottom: 20,
   },
-  qrCodePlaceholder: {
-    width: 250,
-    height: 250,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  qrCodeText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginTop: 12,
-  },
-  qrCodeSubtext: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  detailsCard: {
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 24,
-    gap: 20,
-  },
-  detailRow: {
+  stepItem: {
     flexDirection: 'row',
+    marginBottom: 20,
     gap: 16,
-    alignItems: 'flex-start',
   },
-  detailContent: {
-    flex: 1,
-  },
-  detailLabel: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  detailValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  detailAddress: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: 4,
-  },
-  infoCard: {
-    backgroundColor: colors.accent + '20',
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
-    marginBottom: 24,
-  },
-  infoText: {
-    flex: 1,
-    fontSize: 14,
-    color: colors.text,
-    lineHeight: 20,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-  shareButton: {
-    flex: 1,
-    backgroundColor: colors.card,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 16,
-    gap: 8,
-    borderWidth: 2,
-    borderColor: colors.secondary,
-  },
-  shareButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.secondary,
-  },
-  ordersButton: {
-    flex: 1,
+  stepNumber: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: colors.secondary,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 16,
-    gap: 8,
   },
-  ordersButtonText: {
-    fontSize: 16,
+  stepNumberText: {
+    fontSize: 18,
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  homeButton: {
-    backgroundColor: colors.background,
+  stepContent: {
+    flex: 1,
+  },
+  stepTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  stepDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
+  navigationButtons: {
+    gap: 12,
+  },
+  navButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 16,
-    alignItems: 'center',
-    borderWidth: 1,
+    gap: 10,
+    backgroundColor: colors.card,
+    borderWidth: 2,
     borderColor: colors.border,
   },
-  homeButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  button: {
+  navButtonPrimary: {
     backgroundColor: colors.secondary,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    marginTop: 24,
+    borderColor: colors.secondary,
   },
-  buttonText: {
+  navButtonText: {
     fontSize: 16,
     fontWeight: '700',
+    color: colors.text,
+  },
+  navButtonTextPrimary: {
     color: '#FFFFFF',
   },
 });

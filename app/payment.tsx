@@ -9,95 +9,96 @@ import { IconSymbol } from '@/components/IconSymbol';
 export default function PaymentScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  
   const [loading, setLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [showSimulationModal, setShowSimulationModal] = useState(false);
 
-  // Extract params
   const serviceId = params.serviceId as string;
   const serviceName = params.serviceName as string;
   const totalPrice = params.totalPrice as string;
   const printJobId = params.printJobId as string;
+  const storeId = params.storeId as string;
+  const storeName = params.storeName as string;
+  const storeAddress = params.storeAddress as string;
+  const isDigitalOnly = params.isDigitalOnly === 'true';
 
   const handlePayment = async () => {
-    console.log('[Payment] Showing simulation modal for testing...');
-    setShowSimulationModal(true);
-  };
-
-  const handleSimulatePayment = async (approved: boolean) => {
-    setShowSimulationModal(false);
-    
-    if (!approved) {
-      setErrorMessage('Pagamento cancelado para teste.');
-      setShowErrorModal(true);
-      return;
-    }
-
-    console.log('[Payment] Simulating payment approval...');
     setLoading(true);
-
     try {
-      // Simulate payment processing delay
+      console.log('PaymentScreen: Processing payment for:', {
+        serviceId,
+        serviceName,
+        totalPrice,
+        printJobId,
+        isDigitalOnly,
+      });
+
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      console.log('[Payment] Payment simulated successfully');
+
+      console.log('PaymentScreen: Payment successful');
       setShowSuccessModal(true);
-    } catch (error: any) {
-      console.error('[Payment] Error simulating payment:', error);
-      setErrorMessage(error.message || 'Erro ao processar pagamento. Por favor, tente novamente.');
+    } catch (error) {
+      console.error('PaymentScreen: Payment error:', error);
+      setErrorMessage('Não foi possível processar o pagamento. Tente novamente.');
       setShowErrorModal(true);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSuccessClose = async () => {
-    setShowSuccessModal(false);
-    
+  const handleSimulatePayment = async (approved: boolean) => {
+    setLoading(true);
     try {
-      const { authenticatedPost } = await import('@/utils/api');
-      
-      const response = await authenticatedPost(`/api/orders/create-from-print-job`, {
-        printJobId,
-        paymentMethod: 'pix',
-        paymentStatus: 'approved',
-        partnerId: params.partnerId,
-        partnerName: params.partnerName,
-        partnerAddress: params.partnerAddress,
-      });
+      console.log('PaymentScreen: Simulating payment:', approved ? 'APPROVED' : 'REJECTED');
 
-      console.log('PaymentScreen: Order created:', response);
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
-      router.replace({
-        pathname: '/order-success',
-        params: {
-          orderId: response.orderId || printJobId,
-        },
-      });
+      if (approved) {
+        console.log('PaymentScreen: Payment approved');
+        setShowSuccessModal(true);
+      } else {
+        console.log('PaymentScreen: Payment rejected');
+        setErrorMessage('Pagamento recusado. Verifique seus dados e tente novamente.');
+        setShowErrorModal(true);
+      }
     } catch (error) {
-      console.error('PaymentScreen: Error creating order:', error);
-      router.push('/(tabs)/orders');
+      console.error('PaymentScreen: Simulation error:', error);
+      setErrorMessage('Erro ao simular pagamento. Tente novamente.');
+      setShowErrorModal(true);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const priceValue = parseFloat(totalPrice);
-  const formattedPrice = `R$ ${priceValue.toFixed(2)}`;
+  const handleSuccessClose = () => {
+    setShowSuccessModal(false);
+    router.push({
+      pathname: '/order-success',
+      params: {
+        orderId: printJobId,
+        serviceId,
+        serviceName,
+        totalPrice,
+        isDigitalOnly: isDigitalOnly ? 'true' : 'false',
+      },
+    });
+  };
+
+  const priceValue = parseFloat(totalPrice || '0');
+  const priceFormatted = priceValue.toFixed(2).replace('.', ',');
 
   return (
     <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
       <Stack.Screen 
         options={{
-          headerShown: true,
           title: 'Pagamento',
+          headerShown: true,
           headerBackTitle: 'Voltar',
         }}
       />
       <ScrollView style={commonStyles.container} contentContainerStyle={styles.scrollContent}>
         <View style={commonStyles.section}>
-          {/* Payment Header */}
           <View style={styles.headerCard}>
             <IconSymbol 
               ios_icon_name="creditcard.fill" 
@@ -105,148 +106,154 @@ export default function PaymentScreen() {
               size={48} 
               color={colors.secondary} 
             />
-            <Text style={styles.headerTitle}>Resumo do Pedido</Text>
+            <Text style={styles.headerTitle}>Pagamento via Pix</Text>
+            <Text style={styles.headerSubtitle}>
+              Escaneie o QR Code ou copie o código Pix para pagar
+            </Text>
           </View>
 
-          {/* Order Summary */}
           <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>Resumo do Pedido</Text>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Serviço:</Text>
               <Text style={styles.summaryValue}>{serviceName}</Text>
             </View>
-            
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryRow}>
-              <Text style={styles.totalLabel}>Total a pagar:</Text>
-              <Text style={styles.totalValue}>{formattedPrice}</Text>
-            </View>
-          </View>
-
-          {/* Payment Method */}
-          <Text style={styles.sectionTitle}>Forma de Pagamento</Text>
-          
-          <View style={styles.paymentMethodCard}>
-            <IconSymbol 
-              ios_icon_name="qrcode" 
-              android_material_icon_name="qr-code" 
-              size={40} 
-              color={colors.secondary} 
-            />
-            <View style={styles.paymentMethodInfo}>
-              <Text style={styles.paymentMethodTitle}>Pix</Text>
-              <Text style={styles.paymentMethodDescription}>
-                Pagamento rápido e seguro
-              </Text>
-            </View>
-            <IconSymbol 
-              ios_icon_name="checkmark.circle.fill" 
-              android_material_icon_name="check-circle" 
-              size={28} 
-              color={colors.secondary} 
-            />
-          </View>
-
-          {/* Test Mode Banner */}
-          <View style={styles.testBanner}>
-            <IconSymbol 
-              ios_icon_name="exclamationmark.triangle.fill" 
-              android_material_icon_name="warning" 
-              size={24} 
-              color={colors.accent} 
-            />
-            <Text style={styles.testBannerText}>
-              Modo de Teste: O pagamento será simulado para você testar o fluxo completo
-            </Text>
-          </View>
-
-          {/* Info Card */}
-          <View style={styles.infoCard}>
-            <IconSymbol 
-              ios_icon_name="info.circle.fill" 
-              android_material_icon_name="info" 
-              size={24} 
-              color={colors.secondary} 
-            />
-            <Text style={styles.infoText}>
-              Após a confirmação do pagamento, você poderá selecionar a loja ou parceiro mais próximo para retirada.
-            </Text>
-          </View>
-
-          {/* Payment Button */}
-          <TouchableOpacity
-            style={styles.paymentButton}
-            onPress={handlePayment}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
+            {!isDigitalOnly && storeName && (
               <>
-                <Text style={styles.paymentButtonText}>Simular Pagamento Pix</Text>
-                <IconSymbol 
-                  ios_icon_name="qrcode" 
-                  android_material_icon_name="qr-code" 
-                  size={24} 
-                  color="#FFFFFF" 
-                />
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Loja:</Text>
+                  <Text style={styles.summaryValue}>{storeName}</Text>
+                </View>
+                {storeAddress && (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Endereço:</Text>
+                    <Text style={styles.summaryValue}>{storeAddress}</Text>
+                  </View>
+                )}
               </>
             )}
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+            {isDigitalOnly && (
+              <View style={styles.digitalBadge}>
+                <IconSymbol 
+                  ios_icon_name="doc.fill" 
+                  android_material_icon_name="description" 
+                  size={20} 
+                  color={colors.secondary} 
+                />
+                <Text style={styles.digitalBadgeText}>Documento Digital - Sem Retirada</Text>
+              </View>
+            )}
+            <View style={[styles.summaryRow, styles.summaryTotal]}>
+              <Text style={styles.summaryTotalLabel}>Total:</Text>
+              <Text style={styles.summaryTotalValue}>R$ {priceFormatted}</Text>
+            </View>
+          </View>
 
-      {/* Simulation Modal */}
-      <Modal
-        visible={showSimulationModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSimulationModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.simulationIcon}>
+          <View style={styles.pixCard}>
+            <View style={styles.qrCodePlaceholder}>
               <IconSymbol 
                 ios_icon_name="qrcode" 
                 android_material_icon_name="qr-code" 
-                size={64} 
-                color={colors.secondary} 
+                size={120} 
+                color={colors.textSecondary} 
               />
+              <Text style={styles.qrCodeText}>QR Code Pix</Text>
             </View>
-            <Text style={styles.modalTitle}>Simulação de Pagamento</Text>
-            <Text style={styles.modalMessage}>
-              Este é um ambiente de teste. Escolha se deseja aprovar ou recusar o pagamento:
+
+            <View style={styles.pixCodeContainer}>
+              <Text style={styles.pixCodeLabel}>Código Pix:</Text>
+              <View style={styles.pixCodeBox}>
+                <Text style={styles.pixCodeText}>00020126580014BR.GOV.BCB.PIX...</Text>
+              </View>
+              <TouchableOpacity style={styles.copyButton}>
+                <IconSymbol 
+                  ios_icon_name="doc.on.doc" 
+                  android_material_icon_name="content-copy" 
+                  size={20} 
+                  color={colors.secondary} 
+                />
+                <Text style={styles.copyButtonText}>Copiar Código</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.instructionsCard}>
+            <Text style={styles.instructionsTitle}>Como Pagar</Text>
+            <View style={styles.instructionItem}>
+              <View style={styles.instructionNumber}>
+                <Text style={styles.instructionNumberText}>1</Text>
+              </View>
+              <Text style={styles.instructionText}>
+                Abra o app do seu banco e escolha pagar com Pix
+              </Text>
+            </View>
+            <View style={styles.instructionItem}>
+              <View style={styles.instructionNumber}>
+                <Text style={styles.instructionNumberText}>2</Text>
+              </View>
+              <Text style={styles.instructionText}>
+                Escaneie o QR Code ou cole o código Pix
+              </Text>
+            </View>
+            <View style={styles.instructionItem}>
+              <View style={styles.instructionNumber}>
+                <Text style={styles.instructionNumberText}>3</Text>
+              </View>
+              <Text style={styles.instructionText}>
+                Confirme o pagamento e aguarde a confirmação
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.simulationCard}>
+            <Text style={styles.simulationTitle}>Simulação de Pagamento</Text>
+            <Text style={styles.simulationSubtitle}>
+              Para testes, use os botões abaixo
             </Text>
             <View style={styles.simulationButtons}>
-              <TouchableOpacity
-                style={[styles.simulationButton, styles.approveButton]}
+              <TouchableOpacity 
+                style={[styles.simulationButton, styles.simulationButtonApprove]}
                 onPress={() => handleSimulatePayment(true)}
+                disabled={loading}
               >
-                <IconSymbol 
-                  ios_icon_name="checkmark.circle.fill" 
-                  android_material_icon_name="check-circle" 
-                  size={24} 
-                  color="#FFFFFF" 
-                />
-                <Text style={styles.simulationButtonText}>Aprovar</Text>
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <IconSymbol 
+                      ios_icon_name="checkmark.circle.fill" 
+                      android_material_icon_name="check-circle" 
+                      size={24} 
+                      color="#FFFFFF" 
+                    />
+                    <Text style={styles.simulationButtonText}>Aprovar</Text>
+                  </>
+                )}
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.simulationButton, styles.rejectButton]}
+              <TouchableOpacity 
+                style={[styles.simulationButton, styles.simulationButtonReject]}
                 onPress={() => handleSimulatePayment(false)}
+                disabled={loading}
               >
-                <IconSymbol 
-                  ios_icon_name="xmark.circle.fill" 
-                  android_material_icon_name="cancel" 
-                  size={24} 
-                  color="#FFFFFF" 
-                />
-                <Text style={styles.simulationButtonText}>Recusar</Text>
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <IconSymbol 
+                      ios_icon_name="xmark.circle.fill" 
+                      android_material_icon_name="cancel" 
+                      size={24} 
+                      color="#FFFFFF" 
+                    />
+                    <Text style={styles.simulationButtonText}>Recusar</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           </View>
         </View>
-      </Modal>
+      </ScrollView>
 
-      {/* Success Modal */}
       <Modal
         visible={showSuccessModal}
         transparent
@@ -255,29 +262,28 @@ export default function PaymentScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <View style={styles.successIcon}>
-              <IconSymbol 
-                ios_icon_name="checkmark.circle.fill" 
-                android_material_icon_name="check-circle" 
-                size={64} 
-                color={colors.secondary} 
-              />
-            </View>
-            <Text style={styles.modalTitle}>Pagamento Aprovado!</Text>
+            <IconSymbol 
+              ios_icon_name="checkmark.circle.fill" 
+              android_material_icon_name="check-circle" 
+              size={64} 
+              color={colors.success} 
+            />
+            <Text style={styles.modalTitle}>Pagamento Confirmado!</Text>
             <Text style={styles.modalMessage}>
-              Seu pagamento foi processado com sucesso. Agora você pode selecionar onde deseja retirar seu pedido.
+              {isDigitalOnly 
+                ? 'Seu documento está sendo processado e estará disponível em instantes.'
+                : 'Seu pedido foi confirmado e enviado para a loja.'}
             </Text>
-            <TouchableOpacity
+            <TouchableOpacity 
               style={styles.modalButton}
               onPress={handleSuccessClose}
             >
-              <Text style={styles.modalButtonText}>Selecionar Loja/Parceiro</Text>
+              <Text style={styles.modalButtonText}>Continuar</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Error Modal */}
       <Modal
         visible={showErrorModal}
         transparent
@@ -286,20 +292,16 @@ export default function PaymentScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <View style={[styles.successIcon, { backgroundColor: colors.error + '20' }]}>
-              <IconSymbol 
-                ios_icon_name="exclamationmark.triangle.fill" 
-                android_material_icon_name="error" 
-                size={64} 
-                color={colors.error} 
-              />
-            </View>
-            <Text style={styles.modalTitle}>Erro</Text>
-            <Text style={styles.modalMessage}>
-              {errorMessage}
-            </Text>
-            <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: colors.error }]}
+            <IconSymbol 
+              ios_icon_name="exclamationmark.circle.fill" 
+              android_material_icon_name="error" 
+              size={64} 
+              color={colors.error} 
+            />
+            <Text style={styles.modalTitle}>Erro no Pagamento</Text>
+            <Text style={styles.modalMessage}>{errorMessage}</Text>
+            <TouchableOpacity 
+              style={[styles.modalButton, styles.modalButtonError]}
               onPress={() => setShowErrorModal(false)}
             >
               <Text style={styles.modalButtonText}>Tentar Novamente</Text>
@@ -316,29 +318,41 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   headerCard: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 24,
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: colors.text,
     marginTop: 16,
+    marginBottom: 8,
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
   },
   summaryCard: {
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 20,
     marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+  },
+  summaryTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 16,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 12,
   },
   summaryLabel: {
@@ -349,112 +363,177 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: colors.text,
-    textAlign: 'right',
     flex: 1,
-    marginLeft: 12,
+    textAlign: 'right',
+    marginLeft: 16,
   },
-  summaryDivider: {
-    height: 1,
-    backgroundColor: colors.textSecondary + '30',
-    marginVertical: 12,
+  digitalBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.secondary + '15',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    gap: 8,
+    marginBottom: 12,
   },
-  totalLabel: {
+  digitalBadgeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.secondary,
+    flex: 1,
+  },
+  summaryTotal: {
+    marginTop: 12,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    marginBottom: 0,
+  },
+  summaryTotalLabel: {
     fontSize: 18,
     fontWeight: '700',
     color: colors.text,
   },
-  totalValue: {
+  summaryTotalValue: {
     fontSize: 24,
     fontWeight: '700',
     color: colors.secondary,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 16,
-  },
-  paymentMethodCard: {
+  pixCard: {
     backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 20,
-    flexDirection: 'row',
+    borderRadius: 20,
+    padding: 24,
     alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 2,
-    borderColor: colors.secondary,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    marginBottom: 24,
   },
-  paymentMethodInfo: {
-    flex: 1,
-    marginLeft: 16,
+  qrCodePlaceholder: {
+    width: 200,
+    height: 200,
+    backgroundColor: colors.background,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
   },
-  paymentMethodTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  paymentMethodDescription: {
+  qrCodeText: {
     fontSize: 14,
     color: colors.textSecondary,
+    marginTop: 12,
   },
-  testBanner: {
-    backgroundColor: colors.accent + '20',
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.accent + '40',
+  pixCodeContainer: {
+    width: '100%',
   },
-  testBannerText: {
-    flex: 1,
+  pixCodeLabel: {
     fontSize: 14,
-    color: colors.text,
-    lineHeight: 20,
     fontWeight: '600',
+    color: colors.text,
+    marginBottom: 8,
   },
-  infoCard: {
-    backgroundColor: colors.secondary + '15',
+  pixCodeBox: {
+    backgroundColor: colors.background,
     borderRadius: 12,
     padding: 16,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: colors.secondary + '40',
+    marginBottom: 12,
   },
-  infoText: {
-    flex: 1,
-    fontSize: 14,
+  pixCodeText: {
+    fontSize: 13,
     color: colors.text,
-    lineHeight: 20,
+    fontFamily: 'monospace',
   },
-  paymentButton: {
-    backgroundColor: colors.secondary,
+  copyButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    borderWidth: 2,
+    borderColor: colors.secondary,
+    gap: 8,
   },
-  paymentButtonText: {
-    fontSize: 18,
+  copyButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.secondary,
+  },
+  instructionsCard: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 24,
+  },
+  instructionsTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 20,
+  },
+  instructionItem: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    gap: 12,
+  },
+  instructionNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  instructionNumberText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  instructionText: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.text,
+    lineHeight: 22,
+  },
+  simulationCard: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 24,
+  },
+  simulationTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  simulationSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  simulationButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  simulationButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    gap: 8,
+  },
+  simulationButtonApprove: {
+    backgroundColor: colors.success,
+  },
+  simulationButtonReject: {
+    backgroundColor: colors.error,
+  },
+  simulationButtonText: {
+    fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -473,16 +552,11 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     alignItems: 'center',
   },
-  successIcon: {
-    marginBottom: 20,
-  },
-  simulationIcon: {
-    marginBottom: 20,
-  },
   modalTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     color: colors.text,
+    marginTop: 16,
     marginBottom: 12,
     textAlign: 'center',
   },
@@ -490,46 +564,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
     textAlign: 'center',
+    lineHeight: 24,
     marginBottom: 24,
-    lineHeight: 22,
-  },
-  simulationButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  simulationButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    gap: 8,
-  },
-  approveButton: {
-    backgroundColor: colors.secondary,
-  },
-  rejectButton: {
-    backgroundColor: colors.error,
-  },
-  simulationButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
   modalButton: {
     backgroundColor: colors.secondary,
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 32,
-    borderRadius: 12,
+    borderRadius: 14,
     width: '100%',
+    alignItems: 'center',
+  },
+  modalButtonError: {
+    backgroundColor: colors.error,
   },
   modalButtonText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
-    textAlign: 'center',
   },
 });
