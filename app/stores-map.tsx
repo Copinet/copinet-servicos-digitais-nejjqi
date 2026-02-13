@@ -36,35 +36,101 @@ export default function StoresMapScreen() {
   const rejectedPartnerId = params.rejectedPartnerId as string;
 
   useEffect(() => {
-    requestLocationPermission();
+    const requestLocationPermissionInternal = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.log('StoresMapScreen: Location permission denied');
+          loadStoresInternal();
+          return;
+        }
+
+        const location = await Location.getCurrentPositionAsync({});
+        setUserLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+        console.log('StoresMapScreen: User location:', location.coords);
+      } catch (error) {
+        console.error('StoresMapScreen: Error getting location:', error);
+        loadStoresInternal();
+      }
+    };
+
+    const loadStoresInternal = async () => {
+      try {
+        const { apiGet } = await import('@/utils/api');
+        let storesData = await apiGet('/api/stores');
+        console.log('StoresMapScreen: Stores loaded:', storesData);
+
+        if (rejectedPartnerId) {
+          storesData = storesData.filter((store: Store) => store.id !== rejectedPartnerId);
+          console.log('StoresMapScreen: Filtered out rejected partner:', rejectedPartnerId);
+        }
+
+        if (userLocation) {
+          storesData = storesData.map((store: Store) => ({
+            ...store,
+            distance: calculateDistance(
+              userLocation.latitude,
+              userLocation.longitude,
+              store.latitude,
+              store.longitude
+            ),
+          }));
+
+          storesData.sort((a: Store, b: Store) => (a.distance || 0) - (b.distance || 0));
+        }
+
+        setStores(storesData);
+      } catch (error) {
+        console.error('StoresMapScreen: Error loading stores:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    requestLocationPermissionInternal();
   }, []);
 
   useEffect(() => {
-    if (userLocation) {
-      loadStores();
-    }
-  }, [userLocation]);
+    const loadStoresInternal = async () => {
+      try {
+        const { apiGet } = await import('@/utils/api');
+        let storesData = await apiGet('/api/stores');
+        console.log('StoresMapScreen: Stores loaded:', storesData);
 
-  const requestLocationPermission = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.log('StoresMapScreen: Location permission denied');
-        loadStores();
-        return;
+        if (rejectedPartnerId) {
+          storesData = storesData.filter((store: Store) => store.id !== rejectedPartnerId);
+          console.log('StoresMapScreen: Filtered out rejected partner:', rejectedPartnerId);
+        }
+
+        if (userLocation) {
+          storesData = storesData.map((store: Store) => ({
+            ...store,
+            distance: calculateDistance(
+              userLocation.latitude,
+              userLocation.longitude,
+              store.latitude,
+              store.longitude
+            ),
+          }));
+
+          storesData.sort((a: Store, b: Store) => (a.distance || 0) - (b.distance || 0));
+        }
+
+        setStores(storesData);
+      } catch (error) {
+        console.error('StoresMapScreen: Error loading stores:', error);
+      } finally {
+        setLoading(false);
       }
+    };
 
-      const location = await Location.getCurrentPositionAsync({});
-      setUserLocation({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      });
-      console.log('StoresMapScreen: User location:', location.coords);
-    } catch (error) {
-      console.error('StoresMapScreen: Error getting location:', error);
-      loadStores();
+    if (userLocation) {
+      loadStoresInternal();
     }
-  };
+  }, [userLocation, rejectedPartnerId]);
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371;
@@ -78,39 +144,6 @@ export default function StoresMapScreen() {
     return R * c;
   };
 
-  const loadStores = async () => {
-    try {
-      const { apiGet } = await import('@/utils/api');
-      let storesData = await apiGet('/api/stores');
-      console.log('StoresMapScreen: Stores loaded:', storesData);
-
-      if (rejectedPartnerId) {
-        storesData = storesData.filter((store: Store) => store.id !== rejectedPartnerId);
-        console.log('StoresMapScreen: Filtered out rejected partner:', rejectedPartnerId);
-      }
-
-      if (userLocation) {
-        storesData = storesData.map((store: Store) => ({
-          ...store,
-          distance: calculateDistance(
-            userLocation.latitude,
-            userLocation.longitude,
-            store.latitude,
-            store.longitude
-          ),
-        }));
-
-        storesData.sort((a: Store, b: Store) => (a.distance || 0) - (b.distance || 0));
-      }
-
-      setStores(storesData);
-    } catch (error) {
-      console.error('StoresMapScreen: Error loading stores:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleCallPress = (phone: string) => {
     const phoneUrl = `tel:${phone}`;
     Linking.openURL(phoneUrl).catch(err => {
@@ -119,6 +152,7 @@ export default function StoresMapScreen() {
   };
 
   const handleDirectionsPress = (latitude: number, longitude: number, storeName: string) => {
+    // 🗺️ CORREÇÃO: Abre app externo de mapas mas permite voltar ao app
     const scheme = Platform.select({
       ios: 'maps:',
       android: 'geo:',
@@ -130,8 +164,16 @@ export default function StoresMapScreen() {
       default: `${scheme}?q=${latitude},${longitude}`,
     });
 
+    console.log('StoresMapScreen: Opening external maps app:', url);
+    
+    // Abre o app de mapas externo - o usuário pode voltar usando o botão de voltar do sistema
     Linking.openURL(url).catch(err => {
       console.error('StoresMapScreen: Error opening maps:', err);
+      // Fallback para Google Maps web se o app nativo falhar
+      const webUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+      Linking.openURL(webUrl).catch(webErr => {
+        console.error('StoresMapScreen: Error opening web maps:', webErr);
+      });
     });
   };
 

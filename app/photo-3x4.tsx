@@ -30,30 +30,32 @@ export default function Photo3x4Screen() {
   const [errorModal, setErrorModal] = useState({ visible: false, title: '', message: '' });
 
   useEffect(() => {
+    const requestCameraPermissionInternal = async () => {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      setCameraPermission(status === 'granted');
+    };
+
+    const loadPricingInternal = async () => {
+      try {
+        const { apiGet } = await import('@/utils/api');
+        const data = await apiGet('/api/pricing');
+        setPricing(data);
+        if (data.photo_3x4 && data.photo_3x4.price) {
+          setTotalPrice(data.photo_3x4.price);
+        }
+        console.log('Photo3x4Screen: Pricing loaded:', data);
+      } catch (error) {
+        console.error('Photo3x4Screen: Error loading pricing:', error);
+        showError('Erro', 'Não foi possível carregar os preços. Tente novamente.');
+      }
+    };
+
     console.log('Photo3x4Screen: Loading pricing');
-    loadPricing();
-    requestCameraPermission();
+    loadPricingInternal();
+    requestCameraPermissionInternal();
   }, []);
 
-  const requestCameraPermission = async () => {
-    const { status } = await Camera.requestCameraPermissionsAsync();
-    setCameraPermission(status === 'granted');
-  };
 
-  const loadPricing = async () => {
-    try {
-      const { apiGet } = await import('@/utils/api');
-      const data = await apiGet('/api/pricing');
-      setPricing(data);
-      if (data.photo_3x4 && data.photo_3x4.price) {
-        setTotalPrice(data.photo_3x4.price);
-      }
-      console.log('Photo3x4Screen: Pricing loaded:', data);
-    } catch (error) {
-      console.error('Photo3x4Screen: Error loading pricing:', error);
-      showError('Erro', 'Não foi possível carregar os preços. Tente novamente.');
-    }
-  };
 
   const showError = (title: string, message: string) => {
     setErrorModal({ visible: true, title, message });

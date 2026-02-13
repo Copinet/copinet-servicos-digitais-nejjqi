@@ -1,11 +1,13 @@
 
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Modal, Linking } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, commonStyles } from '@/styles/commonStyles';
 import { IconSymbol } from '@/components/IconSymbol';
 import { useAuth } from '@/contexts/AuthContext';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 
 export default function OrdersScreen() {
   const router = useRouter();
@@ -18,11 +20,67 @@ export default function OrdersScreen() {
   const [deleting, setDeleting] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [downloading, setDownloading] = useState(false);
 
   const loadOrdersCallback = React.useCallback(() => {
+    const loadOrdersInternal = async () => {
+      try {
+        console.log('[OrdersScreen] Fetching orders from API...');
+        const { authenticatedGet } = await import('@/utils/api');
+        
+        // Fetch both regular orders and print jobs
+        const [ordersData, printJobsData] = await Promise.all([
+          authenticatedGet('/api/orders').catch(() => []),
+          authenticatedGet('/api/print-jobs').catch(() => []),
+        ]);
+        
+        // Transform regular orders
+        const transformedOrders = ordersData.map((order: any) => ({
+          id: order.id,
+          serviceId: order.serviceId,
+          serviceName: order.serviceName,
+          status: order.status,
+          customerData: order.customerData,
+          totalPrice: parseFloat(order.totalPrice),
+          createdAt: order.createdAt,
+          updatedAt: order.updatedAt,
+          type: 'order',
+        }));
+        
+        // Transform print jobs
+        const transformedPrintJobs = printJobsData.map((job: any) => ({
+          id: job.id,
+          serviceId: job.serviceType,
+          serviceName: getServiceNameFromType(job.serviceType),
+          status: job.status,
+          customerData: null,
+          totalPrice: parseFloat(job.totalPrice),
+          createdAt: job.createdAt,
+          updatedAt: job.updatedAt,
+          type: 'print_job',
+          files: job.files,
+          options: job.options,
+        }));
+        
+        // Combine and sort by date
+        const allOrders = [...transformedOrders, ...transformedPrintJobs].sort((a, b) => 
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        
+        setOrders(allOrders);
+        console.log('[OrdersScreen] Orders loaded successfully:', allOrders.length);
+      } catch (error) {
+        console.error('[OrdersScreen] Error loading orders:', error);
+        // Fallback to empty array on error
+        setOrders([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (user) {
       console.log('OrdersScreen: Loading orders for user', user.id);
-      loadOrders();
+      loadOrdersInternal();
     } else {
       setLoading(false);
     }
@@ -146,6 +204,111 @@ export default function OrdersScreen() {
       setShowDeleteModal(false);
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!selectedOrder || selectedOrder.serviceId !== 'scan_to_pdf') {
+      return;
+    }
+
+    setDownloading(true);
+    try {
+      const { authenticatedGet } = await import('@/utils/api');
+      
+      console.log('[OrdersScreen] Fetching download URL for print job:', selectedOrder.id);
+      const downloadData = await authenticatedGet(`/api/print-jobs/${selectedOrder.id}/download`);
+      console.log('[OrdersScreen] Download data received:', downloadData);
+      
+      const pdfUrl = downloadData.pdfUrl;
+      if (!pdfUrl) {
+        throw new Error('PDF URL não disponível');
+      }
+      
+      const fileName = downloadData.filename || `documento_${selectedOrder.id}.pdf`;
+      const fileUri = FileSystem.documentDirectory + fileName;
+
+      console.log('[OrdersScreen] Downloading PDF from:', pdfUrl);
+      const downloadResult = await FileSystem.downloadAsync(pdfUrl, fileUri);
+      
+      console.log('[OrdersScreen] PDF downloaded to:', downloadResult.uri);
+
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(downloadResult.uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Salvar PDF',
+        });
+      }
+    } catch (error: any) {
+      console.error('[OrdersScreen] Error downloading PDF:', error);
+      setErrorMessage(error.message || 'Erro ao baixar PDF');
+      setShowErrorModal(true);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleShareWhatsApp = async () => {
+    if (!selectedOrder || selectedOrder.serviceId !== 'scan_to_pdf') {
+      return;
+    }
+
+    try {
+      const { authenticatedPost } = await import('@/utils/api');
+      
+      console.log('[OrdersScreen] Sharing via WhatsApp for print job:', selectedOrder.id);
+      const shareResponse = await authenticatedPost(`/api/print-jobs/${selectedOrder.id}/share`, {
+        method: 'whatsapp',
+        message: `Confira meu documento PDF escaneado! Pedido: ${selectedOrder.id}`,
+      });
+      
+      const shareableLink = shareResponse.shareableLink;
+      if (shareableLink) {
+        const message = encodeURIComponent(`Confira meu documento PDF escaneado!\n\nPedido: ${selectedOrder.id}\n\nBaixe aqui: ${shareableLink}`);
+        const whatsappUrl = `whatsapp://send?text=${message}`;
+        
+        const supported = await Linking.canOpenURL(whatsappUrl);
+        if (supported) {
+          await Linking.openURL(whatsappUrl);
+        } else {
+          setErrorMessage('WhatsApp não está instalado neste dispositivo');
+          setShowErrorModal(true);
+        }
+      }
+    } catch (error: any) {
+      console.error('[OrdersScreen] Error sharing via WhatsApp:', error);
+      setErrorMessage(error.message || 'Erro ao compartilhar via WhatsApp');
+      setShowErrorModal(true);
+    }
+  };
+
+  const handleShareEmail = async () => {
+    if (!selectedOrder || selectedOrder.serviceId !== 'scan_to_pdf') {
+      return;
+    }
+
+    try {
+      const { authenticatedPost } = await import('@/utils/api');
+      
+      console.log('[OrdersScreen] Sharing via Email for print job:', selectedOrder.id);
+      const shareResponse = await authenticatedPost(`/api/print-jobs/${selectedOrder.id}/share`, {
+        method: 'email',
+        message: `Segue o link para download do documento PDF escaneado. Pedido: ${selectedOrder.id}`,
+      });
+      
+      const shareableLink = shareResponse.shareableLink;
+      if (shareableLink) {
+        const subject = encodeURIComponent(`Documento PDF - Pedido ${selectedOrder.id}`);
+        const body = encodeURIComponent(`Olá,\n\nSegue o link para download do documento PDF escaneado:\n\n${shareableLink}\n\nPedido: ${selectedOrder.id}\n\nAtenciosamente,\nCopinet Serviços Digitais`);
+        const emailUrl = `mailto:?subject=${subject}&body=${body}`;
+        
+        await Linking.openURL(emailUrl);
+      }
+    } catch (error: any) {
+      console.error('[OrdersScreen] Error sharing via Email:', error);
+      setErrorMessage(error.message || 'Erro ao compartilhar via Email');
+      setShowErrorModal(true);
     }
   };
 
@@ -372,6 +535,60 @@ export default function OrdersScreen() {
                     {selectedOrder.customerData.rg && (
                       <Text style={styles.customerDataText}>RG: {selectedOrder.customerData.rg}</Text>
                     )}
+                  </View>
+                )}
+                
+                {selectedOrder.serviceId === 'scan_to_pdf' && (
+                  <View style={styles.pdfActionsSection}>
+                    <Text style={styles.sectionTitle}>Ações do PDF</Text>
+                    
+                    <TouchableOpacity 
+                      style={[commonStyles.largeButton, styles.downloadButton]}
+                      onPress={handleDownloadPDF}
+                      disabled={downloading}
+                    >
+                      {downloading ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <IconSymbol 
+                            ios_icon_name="arrow.down.circle.fill" 
+                            android_material_icon_name="download" 
+                            size={20} 
+                            color="#FFFFFF" 
+                          />
+                          <Text style={commonStyles.largeButtonText}>Baixar PDF</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    
+                    <View style={styles.shareButtonsRow}>
+                      <TouchableOpacity 
+                        style={[styles.shareButtonSmall, { backgroundColor: '#25D366' }]}
+                        onPress={handleShareWhatsApp}
+                      >
+                        <IconSymbol 
+                          ios_icon_name="message.fill" 
+                          android_material_icon_name="chat" 
+                          size={20} 
+                          color="#FFFFFF" 
+                        />
+                        <Text style={styles.shareButtonSmallText}>WhatsApp</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity 
+                        style={[styles.shareButtonSmall, { backgroundColor: '#EA4335' }]}
+                        onPress={handleShareEmail}
+                      >
+                        <IconSymbol 
+                          ios_icon_name="envelope.fill" 
+                          android_material_icon_name="email" 
+                          size={20} 
+                          color="#FFFFFF" 
+                        />
+                        <Text style={styles.shareButtonSmallText}>Email</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 )}
                 
@@ -610,6 +827,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 20,
+  },
+  pdfActionsSection: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+  },
+  downloadButton: {
+    backgroundColor: colors.secondary,
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  shareButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  shareButtonSmall: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  shareButtonSmallText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   confirmModal: {
     backgroundColor: colors.card,

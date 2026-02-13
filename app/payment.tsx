@@ -58,6 +58,23 @@ export default function PaymentScreen() {
     setShowSuccessModal(false);
     
     try {
+      // For scan-to-pdf, we don't need to create an order - just navigate to success with the print job
+      const isScanToPDF = serviceId === 'scan_to_pdf' || params.serviceType === 'scan_to_pdf';
+      
+      if (isScanToPDF) {
+        console.log('PaymentScreen: Scan-to-PDF payment approved, navigating to success with PDF');
+        router.replace({
+          pathname: '/order-success',
+          params: {
+            orderId: printJobId,
+            serviceType: 'scan_to_pdf',
+            pdfUrl: params.pdfUrl || '',
+          },
+        });
+        return;
+      }
+      
+      // For other services, create an order
       const { authenticatedPost } = await import('@/utils/api');
       
       const response = await authenticatedPost(`/api/orders/create-from-print-job`, {
