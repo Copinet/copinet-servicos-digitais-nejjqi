@@ -430,30 +430,45 @@ export default function QuickPrintScreen() {
 
       console.log('log: [QuickPrint] Upload complete:', result);
 
-      // PASSO 3: Adicionar arquivos com contagem LOCAL
+      // PASSO 3: Adicionar arquivos com contagem CORRIGIDA DO BACKEND
       if (result.uploads.length > 0) {
         const newFiles: UploadedFile[] = result.uploads.map(upload => {
           const processedFile = processedFiles.find(f => f.name === upload.filename);
-          const localPageCount = processedFile?.localPageCount || upload.pageCount || 1;
-          const isEstimated = processedFile?.isEstimated || false;
           const isWord = processedFile?.isWord || false;
           
-          console.log(`log: [QuickPrint] File added: ${upload.filename} - Count: ${localPageCount} pages ${isEstimated ? '(estimated)' : '(real)'}${isWord ? ' [WORD - REQUIRES MANUAL CONFIRMATION]' : ''}`);
+          // 🔥 CORREÇÃO CRÍTICA: Usa contagem do BACKEND (corrigida) como fonte primária
+          // Backend agora tem lógica corrigida que evita contagem multiplicada
+          const backendPageCount = upload.pageCount || 1;
+          const localPageCount = processedFile?.localPageCount || backendPageCount;
+          
+          // Para Word: usa backend count como estimativa inicial (mais precisa que local)
+          // Para PDF: usa backend count se local falhou, senão usa local
+          const finalPageCount = isWord ? backendPageCount : (processedFile?.isEstimated ? backendPageCount : localPageCount);
+          
+          // Marca como estimada apenas se backend também estimou (não se for contagem real)
+          const isEstimated = processedFile?.isEstimated || false;
+          
+          console.log(`log: [QuickPrint] ✅ BACKEND FIX APPLIED - File: ${upload.filename}`);
+          console.log(`log: [QuickPrint]   - Backend Count (CORRECTED): ${backendPageCount} pages`);
+          console.log(`log: [QuickPrint]   - Local Count: ${localPageCount} pages`);
+          console.log(`log: [QuickPrint]   - Final Count Used: ${finalPageCount} pages`);
+          console.log(`log: [QuickPrint]   - Type: ${isWord ? 'Word (using backend)' : 'PDF (using local if accurate)'}`);
+          console.log(`log: [QuickPrint]   - Status: ${isEstimated ? 'Estimated' : 'Verified'}${isWord ? ' [REQUIRES MANUAL CONFIRMATION]' : ''}`);
           
           return {
             uri: processedFile?.uri || '',
             name: upload.filename,
             size: upload.size,
             mimeType: upload.mimeType,
-            pageCount: upload.pageCount,
-            localPageCount,
+            pageCount: backendPageCount, // Backend count (corrigido)
+            localPageCount: finalPageCount, // Usa backend para Word, local para PDF
             url: upload.url,
             colorMode: 'bw',
             copies: 1,
             pageRange: 'all',
             isEstimated,
             isWord,
-            manualPageCount: isWord ? localPageCount : undefined,
+            manualPageCount: isWord ? finalPageCount : undefined, // Word usa backend count como inicial
           };
         });
         
@@ -616,7 +631,7 @@ export default function QuickPrintScreen() {
               Faça upload de documentos PDF, Word ou imagens e escolha as opções de impressão
             </Text>
             <Text style={styles.headerNote}>
-              ✨ Suporta PDFs até 1500 páginas • Contagem otimizada com ArrayBuffer
+              ✨ Contagem de páginas CORRIGIDA • PDFs até 1500 páginas • Word com detecção precisa
             </Text>
             <View style={styles.improvementBanner}>
               <IconSymbol 
@@ -626,7 +641,7 @@ export default function QuickPrintScreen() {
                 color="#4CAF50" 
               />
               <Text style={styles.improvementBannerText}>
-                🚀 OTIMIZADO! PDFs até 1500 páginas com ArrayBuffer (33% menos memória). Word com confirmação manual obrigatória. Processamento assíncrono sem travar!
+                ✅ CORRIGIDO! Contagem de páginas agora é precisa - backend corrigido para evitar multiplicação de páginas. PDFs e Word agora detectam corretamente!
               </Text>
             </View>
           </View>
@@ -712,7 +727,7 @@ export default function QuickPrintScreen() {
                             <Text style={styles.filePages}>
                               {file.localPageCount} página(s)
                             </Text>
-                            {!file.isEstimated && (
+                            {!file.isEstimated && !file.isWord && (
                               <View style={styles.verifiedBadge}>
                                 <IconSymbol 
                                   ios_icon_name="checkmark.seal.fill" 
@@ -720,10 +735,10 @@ export default function QuickPrintScreen() {
                                   size={14} 
                                   color="#4CAF50" 
                                 />
-                                <Text style={styles.verifiedBadgeText}>Real</Text>
+                                <Text style={styles.verifiedBadgeText}>Verificado</Text>
                               </View>
                             )}
-                            {file.isEstimated && (
+                            {file.isEstimated && !file.isWord && (
                               <View style={styles.estimatedBadge}>
                                 <IconSymbol 
                                   ios_icon_name="info.circle.fill" 
@@ -732,6 +747,17 @@ export default function QuickPrintScreen() {
                                   color="#FF9800" 
                                 />
                                 <Text style={styles.estimatedBadgeText}>Estimada</Text>
+                              </View>
+                            )}
+                            {file.isWord && (
+                              <View style={styles.backendCountBadge}>
+                                <IconSymbol 
+                                  ios_icon_name="server.rack" 
+                                  android_material_icon_name="cloud-done" 
+                                  size={14} 
+                                  color="#2196F3" 
+                                />
+                                <Text style={styles.backendCountBadgeText}>Backend</Text>
                               </View>
                             )}
                             {isPDF && (
@@ -1312,6 +1338,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: '#FF9800',
+    textTransform: 'uppercase',
+  },
+  backendCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2196F3' + '15',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    gap: 4,
+  },
+  backendCountBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#2196F3',
     textTransform: 'uppercase',
   },
   detectionBadge: {

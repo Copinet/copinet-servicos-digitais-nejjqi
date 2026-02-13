@@ -469,11 +469,16 @@ export const uploadFile = async (
 };
 
 /**
- * Upload multiple files with LOCAL page count (ONE BY ONE)
- * The frontend provides the page count, backend just stores the file
+ * Upload multiple files with page count (ONE BY ONE)
+ * Returns BOTH local and backend page counts for frontend to decide which to use
+ * 
+ * BACKEND FIX APPLIED: Backend now has corrected page counting logic
+ * - For Word files: Backend count is more accurate (uses 15KB/page heuristic)
+ * - For PDF files: Backend count is accurate (uses single strategy, no multiplication)
+ * - Frontend can choose to use backend count or local count based on file type
  */
 export const uploadMultipleFilesWithPageCount = async (
-  files: { uri: string; name: string; type: string; localPageCount: number }[],
+  files: { uri: string; name: string; type: string; localPageCount: number; isWord?: boolean; isEstimated?: boolean }[],
   onProgress?: (progress: number) => void,
   onFileProgress?: (fileIndex: number, fileName: string, status: 'uploading' | 'complete' | 'failed') => void
 ): Promise<{
@@ -482,7 +487,8 @@ export const uploadMultipleFilesWithPageCount = async (
     filename: string;
     size: number;
     mimeType: string;
-    pageCount: number;
+    pageCount: number; // Backend's corrected count
+    localPageCount?: number; // Frontend's local count (for comparison)
   }[];
   failed: {
     filename: string;
@@ -494,7 +500,8 @@ export const uploadMultipleFilesWithPageCount = async (
     throw new Error("Backend URL not configured. Please rebuild the app.");
   }
 
-  console.log('[API] Uploading multiple files with LOCAL page counts (ONE BY ONE):', files.length);
+  console.log('[API] 🚀 BACKEND FIX APPLIED - Uploading files with corrected page counting');
+  console.log(`[API] Total files: ${files.length}`);
 
   const uploads: any[] = [];
   const failed: any[] = [];
@@ -502,7 +509,10 @@ export const uploadMultipleFilesWithPageCount = async (
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     
-    console.log(`[API] Uploading file ${i + 1}/${files.length}:`, file.name, `(Local count: ${file.localPageCount} páginas)`);
+    console.log(`[API] Uploading file ${i + 1}/${files.length}:`, file.name);
+    console.log(`[API]   - Local count: ${file.localPageCount} páginas`);
+    console.log(`[API]   - Type: ${file.isWord ? 'Word' : 'PDF/Image'}`);
+    console.log(`[API]   - Estimated: ${file.isEstimated ? 'Yes' : 'No'}`);
     
     if (onFileProgress) {
       onFileProgress(i, file.name, 'uploading');
@@ -511,20 +521,27 @@ export const uploadMultipleFilesWithPageCount = async (
     const result = await uploadFile(file);
     
     if (result.success && result.url) {
-      // Use LOCAL page count, ignore backend count
+      // Return BOTH backend count (corrected) and local count
+      // Frontend will decide which to use based on file type
+      const backendPageCount = result.pageCount || 1;
+      
       uploads.push({
         url: result.url,
         filename: result.filename || file.name,
         size: result.size || 0,
         mimeType: result.mimeType || file.type,
-        pageCount: file.localPageCount, // PRIORIDADE: Contagem local do frontend
+        pageCount: backendPageCount, // Backend's CORRECTED count
+        localPageCount: file.localPageCount, // Frontend's local count (for comparison)
       });
       
       if (onFileProgress) {
         onFileProgress(i, file.name, 'complete');
       }
       
-      console.log(`✅ File ${i + 1}/${files.length} uploaded successfully:`, file.name, `(Using LOCAL count: ${file.localPageCount} páginas)`);
+      console.log(`✅ File ${i + 1}/${files.length} uploaded successfully:`, file.name);
+      console.log(`   - Backend count (CORRECTED): ${backendPageCount} páginas`);
+      console.log(`   - Local count: ${file.localPageCount} páginas`);
+      console.log(`   - Difference: ${Math.abs(backendPageCount - file.localPageCount)} páginas`);
     } else {
       failed.push({
         filename: file.name,
@@ -546,7 +563,8 @@ export const uploadMultipleFilesWithPageCount = async (
     }
   }
 
-  console.log('[API] Sequential upload complete with LOCAL page counts:', { uploads: uploads.length, failed: failed.length });
+  console.log('[API] ✅ Sequential upload complete with CORRECTED backend page counts');
+  console.log(`[API] Success: ${uploads.length}, Failed: ${failed.length}`);
   return { uploads, failed };
 };
 
@@ -642,7 +660,7 @@ export const getErrorMessage = (code?: string, defaultMessage?: string): string 
   const errorMessages: Record<string, string> = {
     'FILE_TOO_LARGE': 'Arquivo muito grande. O tamanho máximo é 100MB por arquivo.',
     'PAYLOAD_TOO_LARGE': 'Arquivo muito grande. O servidor aceita no máximo 100MB por arquivo.',
-    'TOO_MANY_PAGES': 'PDF com muitas páginas. O máximo é 2000 páginas.',
+    'TOO_MANY_PAGES': 'PDF com muitas páginas. O máximo é 2000 páginas. (Nota: A contagem de páginas foi corrigida para ser mais precisa)',
     'INVALID_FORMAT': 'Formato de arquivo inválido. Use PDF, Word, ou imagens (JPG, PNG).',
     'PROCESSING_FAILED': 'Não foi possível processar o arquivo. Tente novamente.',
     'TIMEOUT': 'O processamento demorou muito (máx. 120 segundos). Tente com um arquivo menor.',
