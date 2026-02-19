@@ -1,30 +1,34 @@
 
 import { StyleSheet, ViewStyle, TextStyle } from 'react-native';
 
-// 🎨 IDENTIDADE VISUAL COPINET - Dark Modern Theme
+// 🎨 IDENTIDADE VISUAL COPINET - Premium Dark Theme
 export const colors = {
-  // Paleta Principal - Dark Modern
-  primary: '#C0C0C0',      // Silver (Prata)
-  secondary: '#D4AF37',    // Gold (Dourado) - Destaques e botões primários
-  accent: '#FFD700',       // Bright Gold - Highlights especiais
-  
-  // Backgrounds - Dark Theme
-  background: '#121212',   // Charcoal - Fundo principal (Dark)
-  backgroundAlt: '#1E1E1E', // Dark Grey - Fundo alternativo
-  card: '#1E1E1E',         // Dark Grey - Cards com Glassmorphism
-  
-  // Textos - High Contrast
-  text: '#FFFFFF',         // White - Texto principal (high contrast)
-  textSecondary: '#C0C0C0', // Silver - Textos secundários e bordas
-  
+  // Paleta Principal - Premium
+  primary: '#FFFFFF',      // White for primary text/icons
+  secondary: '#FFD700',    // Gold - Destaques principais
+  accent: '#FFC107',       // Amber/Gold lighter
+
+  // Backgrounds
+  background: '#000000',   // Black
+  backgroundAlt: '#121212', // Slightly lighter black
+  card: 'rgba(30, 30, 30, 0.7)', // Glassmorphism base
+
+  // Textos
+  text: '#FFFFFF',         // White
+  textSecondary: '#A0A0A0', // Grey
+
   // Bordas e Divisores
-  border: '#333333',       // Dark border
-  
+  border: 'rgba(255, 255, 255, 0.1)',
+
+  // Glass Effects
+  glass: 'rgba(255, 255, 255, 0.05)',
+  glassBorder: 'rgba(255, 255, 255, 0.1)',
+
   // Estados
-  success: '#4CAF50',      // Green
-  warning: '#FF9800',      // Orange
-  error: '#F44336',        // Red
-  highlight: '#D4AF37',    // Gold highlight
+  success: '#4CAF50',
+  warning: '#FFC107',
+  error: '#FF5252',
+  highlight: '#D4AF37',
 };
 
 export const buttonStyles = StyleSheet.create({
@@ -33,14 +37,21 @@ export const buttonStyles = StyleSheet.create({
     alignSelf: 'center',
     width: '100%',
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 16,
+    shadowColor: colors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   secondaryButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     alignSelf: 'center',
     width: '100%',
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
 });
 
@@ -64,50 +75,48 @@ export const commonStyles = StyleSheet.create({
   },
   title: {
     fontSize: 28,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 8,
+    letterSpacing: 0.5,
+  },
+  subtitle: {
+    fontSize: 20,
     fontWeight: '700',
     color: colors.text,
     marginBottom: 8,
   },
-  subtitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 8,
-  },
   text: {
-    fontSize: 18,
-    fontWeight: '400',
-    color: colors.text,
-    lineHeight: 26,
-  },
-  textSecondary: {
     fontSize: 16,
     fontWeight: '400',
-    color: colors.textSecondary,
+    color: colors.text,
     lineHeight: 24,
+  },
+  textSecondary: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: colors.textSecondary,
+    lineHeight: 20,
   },
   section: {
     width: '100%',
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   card: {
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 20,
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   serviceCard: {
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 20,
     marginBottom: 16,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: colors.border,
   },
   goldAccent: {
@@ -115,15 +124,20 @@ export const commonStyles = StyleSheet.create({
   },
   largeButton: {
     backgroundColor: colors.secondary,
-    paddingVertical: 20,
+    paddingVertical: 18,
     paddingHorizontal: 24,
     borderRadius: 16,
     alignItems: 'center',
-    marginVertical: 8,
+    marginVertical: 12,
+    shadowColor: colors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
   },
   largeButtonText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#000000',
   },
 });

@@ -23,13 +23,13 @@ export default function OrdersScreen() {
     try {
       console.log('[OrdersScreen] Fetching orders from API...');
       const { authenticatedGet } = await import('@/utils/api');
-      
+
       // Fetch both regular orders and print jobs
       const [ordersData, printJobsData] = await Promise.all([
         authenticatedGet('/api/orders').catch(() => []),
         authenticatedGet('/api/print-jobs').catch(() => []),
       ]);
-      
+
       // Transform regular orders
       const transformedOrders = ordersData.map((order: any) => ({
         id: order.id,
@@ -42,7 +42,7 @@ export default function OrdersScreen() {
         updatedAt: order.updatedAt,
         type: 'order',
       }));
-      
+
       // Transform print jobs
       const transformedPrintJobs = printJobsData.map((job: any) => ({
         id: job.id,
@@ -57,12 +57,12 @@ export default function OrdersScreen() {
         files: job.files,
         options: job.options,
       }));
-      
+
       // Combine and sort by date
-      const allOrders = [...transformedOrders, ...transformedPrintJobs].sort((a, b) => 
+      const allOrders = [...transformedOrders, ...transformedPrintJobs].sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
-      
+
       setOrders(allOrders);
       console.log('[OrdersScreen] Orders loaded successfully:', allOrders.length);
     } catch (error) {
@@ -98,14 +98,14 @@ export default function OrdersScreen() {
     try {
       const { authenticatedGet } = await import('@/utils/api');
       const order = orders.find(o => o.id === orderId);
-      
+
       let orderDetail;
       if (order && order.type === 'print_job') {
         orderDetail = await authenticatedGet(`/api/print-jobs/${orderId}`);
       } else {
         orderDetail = await authenticatedGet(`/api/orders/${orderId}`);
       }
-      
+
       setSelectedOrder({ ...orderDetail, type: order?.type });
       setShowDetailModal(true);
     } catch (error: any) {
@@ -117,18 +117,18 @@ export default function OrdersScreen() {
 
   const handleDeleteOrder = async () => {
     if (!selectedOrder) return;
-    
+
     try {
       setDeleting(true);
       console.log('[OrdersScreen] Deleting order:', selectedOrder.id);
       const { authenticatedDelete } = await import('@/utils/api');
-      
+
       if (selectedOrder.type === 'print_job') {
         await authenticatedDelete(`/api/print-jobs/${selectedOrder.id}`);
       } else {
         await authenticatedDelete(`/api/orders/${selectedOrder.id}`);
       }
-      
+
       // Remove from local state
       setOrders(orders.filter(o => o.id !== selectedOrder.id));
       setShowDeleteModal(false);
@@ -146,51 +146,10 @@ export default function OrdersScreen() {
   };
 
   const handleLoginPress = () => {
-    console.log('OrdersScreen: Login button pressed');
     router.push('/auth');
   };
 
-  const getStatusColor = (status: string) => {
-    const statusColors: Record<string, string> = {
-      pending: colors.warning,
-      processing: colors.accent,
-      ready: colors.success,
-      completed: colors.textSecondary,
-      cancelled: colors.error,
-    };
-    return statusColors[status] || colors.textSecondary;
-  };
-
-  const getStatusText = (status: string) => {
-    const statusTexts: Record<string, string> = {
-      pending: 'Pendente',
-      processing: 'Em Andamento',
-      ready: 'Pronto',
-      completed: 'Concluído',
-      cancelled: 'Cancelado',
-    };
-    return statusTexts[status] || status;
-  };
-
-  const formatPrice = (price: number | string) => {
-    // 🔥 FIX: Garante que price é um número antes de chamar toFixed
-    const numPrice = typeof price === 'string' ? parseFloat(price) : price;
-    if (isNaN(numPrice) || numPrice === null || numPrice === undefined) {
-      return '0,00';
-    }
-    const priceFormatted = numPrice.toFixed(2).replace('.', ',');
-    return priceFormatted;
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-  };
-
-  if (authLoading || loading) {
+  if (loading) {
     return (
       <View style={[commonStyles.container, styles.centerContent]}>
         <ActivityIndicator size="large" color={colors.secondary} />
@@ -198,39 +157,41 @@ export default function OrdersScreen() {
     );
   }
 
+  const activeOrders = orders.filter(o => ['ready', 'processing'].includes(o.status));
+  const historyOrders = orders.filter(o => ['completed', 'cancelled'].includes(o.status));
+  const displayedOrders = activeTab === 'active' ? activeOrders : historyOrders;
+
   if (!user) {
     return (
       <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
-        <Stack.Screen 
-          options={{
-            headerShown: true,
-            title: 'Meus Pedidos',
-            headerStyle: {
-              backgroundColor: colors.backgroundAlt,
-            },
-            headerTitleStyle: {
-              fontSize: 20,
-              fontWeight: '700',
-              color: colors.text,
-            },
-          }}
-        />
-        <View style={[commonStyles.container, styles.emptyContainer]}>
-          <IconSymbol 
-            ios_icon_name="person.circle" 
-            android_material_icon_name="account-circle" 
-            size={80} 
-            color={colors.textSecondary} 
+        <StatusBar barStyle="light-content" />
+        <Stack.Screen options={{ headerShown: false }} />
+
+        <View style={styles.backgroundContainer}>
+          <LinearGradient
+            colors={[colors.background, '#1A1A1A', '#000000']}
+            style={StyleSheet.absoluteFill}
           />
-          <Text style={styles.emptyTitle}>Faça login para ver seus pedidos</Text>
+        </View>
+
+        <View style={[commonStyles.container, styles.emptyContainer]}>
+          <View style={styles.emptyIconContainer}>
+            <IconSymbol
+              ios_icon_name="list.bullet.clipboard"
+              android_material_icon_name="list-alt"
+              size={64}
+              color={colors.textSecondary}
+            />
+          </View>
+          <Text style={styles.emptyTitle}>Acompanhe seus Pedidos</Text>
           <Text style={styles.emptyText}>
-            Entre na sua conta para acompanhar seus pedidos e histórico
+            Faça login para visualizar o status dos seus pedidos em tempo real e acessar seu histórico.
           </Text>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={commonStyles.largeButton}
             onPress={handleLoginPress}
           >
-            <Text style={commonStyles.largeButtonText}>Entrar</Text>
+            <Text style={commonStyles.largeButtonText}>Entrar ou Cadastrar</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -239,72 +200,79 @@ export default function OrdersScreen() {
 
   return (
     <SafeAreaView style={commonStyles.wrapper} edges={['top']}>
-      <Stack.Screen 
-        options={{
-          headerShown: true,
-          title: 'Meus Pedidos',
-          headerStyle: {
-            backgroundColor: colors.backgroundAlt,
-          },
-          headerTitleStyle: {
-            fontSize: 20,
-            fontWeight: '700',
-            color: colors.text,
-          },
-        }}
-      />
+      <StatusBar barStyle="light-content" />
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={styles.backgroundContainer}>
+        <LinearGradient
+          colors={[colors.background, '#1A1A1A', '#000000']}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.decorativeCircle} />
+      </View>
+
+      <View style={styles.header}>
+        <Text style={styles.screenTitle}>Meus Pedidos</Text>
+      </View>
+
+      <View style={styles.tabsContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'active' && styles.activeTab]}
+          onPress={() => setActiveTab('active')}
+        >
+          <Text style={[styles.tabText, activeTab === 'active' && styles.activeTabText]}>Em Andamento</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'history' && styles.activeTab]}
+          onPress={() => setActiveTab('history')}
+        >
+          <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>Histórico</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView style={commonStyles.container} contentContainerStyle={styles.scrollContent}>
-        <View style={commonStyles.section}>
-          {orders.length === 0 ? (
-            <View style={styles.emptyState}>
-              <IconSymbol 
-                ios_icon_name="receipt" 
-                android_material_icon_name="receipt" 
-                size={64} 
-                color={colors.textSecondary} 
+        <Animated.View style={{ opacity: fadeAnim }}>
+          {displayedOrders.length === 0 ? (
+            <View style={styles.noOrdersContainer}>
+              <IconSymbol
+                ios_icon_name="doc.text.magnifyingglass"
+                android_material_icon_name="search"
+                size={48}
+                color={colors.textSecondary}
               />
-              <Text style={styles.emptyTitle}>Nenhum pedido ainda</Text>
-              <Text style={styles.emptyText}>
-                Seus pedidos aparecerão aqui
-              </Text>
+              <Text style={styles.noOrdersText}>Nenhum pedido encontrado</Text>
             </View>
           ) : (
-            <>
-              {orders.map((order, index) => {
-                const serviceName = order.serviceName;
-                const statusText = getStatusText(order.status);
-                const statusColor = getStatusColor(order.status);
-                const priceText = formatPrice(order.totalPrice);
-                const dateText = formatDate(order.createdAt);
-                
-                return (
-                  <TouchableOpacity
-                    key={index}
-                    style={commonStyles.card}
-                    onPress={() => handleOrderPress(order.id)}
-                  >
+            <View style={styles.ordersList}>
+              {displayedOrders.map((order, index) => (
+                <BlurView key={index} intensity={20} tint="dark" style={styles.orderCardWrapper}>
+                  <View style={styles.orderCard}>
                     <View style={styles.orderHeader}>
-                      <View style={styles.orderInfo}>
-                        <Text style={styles.orderService}>{serviceName}</Text>
-                        <Text style={styles.orderDate}>{dateText}</Text>
+                      <View style={styles.orderIdContainer}>
+                        <IconSymbol ios_icon_name="number" android_material_icon_name="tag" size={12} color={colors.secondary} />
+                        <Text style={styles.orderId}>{order.id}</Text>
                       </View>
-                      <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-                        <Text style={styles.statusText}>{statusText}</Text>
-                      </View>
+                      <Text style={styles.orderDate}>{order.date}</Text>
                     </View>
+
+                    <Text style={styles.orderService}>{order.service}</Text>
+                    <Text style={styles.orderItems}>{order.items}</Text>
+
+                    <View style={styles.divider} />
+
                     <View style={styles.orderFooter}>
-                      <Text style={styles.orderPrice}>R$ {priceText}</Text>
-                      <IconSymbol 
-                        ios_icon_name="chevron.right" 
-                        android_material_icon_name="chevron-right" 
-                        size={20} 
-                        color={colors.textSecondary} 
-                      />
+                      <View style={[styles.statusBadge, { borderColor: getStatusColor(order.status) + '50', backgroundColor: getStatusColor(order.status) + '15' }]}>
+                        <View style={[styles.statusDot, { backgroundColor: getStatusColor(order.status) }]} />
+                        <Text style={[styles.statusText, { color: getStatusColor(order.status) }]}>
+                          {getStatusLabel(order.status)}
+                        </Text>
+                      </View>
+                      <Text style={styles.orderPrice}>R$ {order.price.toFixed(2).replace('.', ',')}</Text>
                     </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </>
+                  </View>
+                </BlurView>
+              ))}
+            </View>
           )}
         </View>
       </ScrollView>
@@ -321,46 +289,46 @@ export default function OrdersScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Detalhes do Pedido</Text>
               <TouchableOpacity onPress={() => setShowDetailModal(false)}>
-                <IconSymbol 
-                  ios_icon_name="xmark.circle.fill" 
-                  android_material_icon_name="close" 
-                  size={28} 
-                  color={colors.textSecondary} 
+                <IconSymbol
+                  ios_icon_name="xmark.circle.fill"
+                  android_material_icon_name="close"
+                  size={28}
+                  color={colors.textSecondary}
                 />
               </TouchableOpacity>
             </View>
-            
+
             {selectedOrder && (
               <ScrollView style={styles.modalBody}>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Serviço:</Text>
                   <Text style={styles.detailValue}>{selectedOrder.serviceName}</Text>
                 </View>
-                
+
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Status:</Text>
                   <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedOrder.status) }]}>
                     <Text style={styles.statusText}>{getStatusText(selectedOrder.status)}</Text>
                   </View>
                 </View>
-                
+
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Valor Total:</Text>
                   <Text style={styles.detailValue}>R$ {formatPrice(selectedOrder.totalPrice)}</Text>
                 </View>
-                
+
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Data:</Text>
                   <Text style={styles.detailValue}>{formatDate(selectedOrder.createdAt)}</Text>
                 </View>
-                
+
                 {selectedOrder.notes && (
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Observações:</Text>
                     <Text style={styles.detailValue}>{selectedOrder.notes}</Text>
                   </View>
                 )}
-                
+
                 {selectedOrder.customerData && (
                   <View style={styles.customerDataSection}>
                     <Text style={styles.sectionTitle}>Dados do Cliente</Text>
@@ -375,16 +343,16 @@ export default function OrdersScreen() {
                     )}
                   </View>
                 )}
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   style={[commonStyles.largeButton, styles.deleteButton]}
                   onPress={() => setShowDeleteModal(true)}
                 >
-                  <IconSymbol 
-                    ios_icon_name="trash" 
-                    android_material_icon_name="delete" 
-                    size={20} 
-                    color="#FFFFFF" 
+                  <IconSymbol
+                    ios_icon_name="trash"
+                    android_material_icon_name="delete"
+                    size={20}
+                    color="#FFFFFF"
                   />
                   <Text style={commonStyles.largeButtonText}>Cancelar Pedido</Text>
                 </TouchableOpacity>
@@ -403,25 +371,25 @@ export default function OrdersScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModal}>
-            <IconSymbol 
-              ios_icon_name="exclamationmark.triangle.fill" 
-              android_material_icon_name="warning" 
-              size={48} 
-              color={colors.warning} 
+            <IconSymbol
+              ios_icon_name="exclamationmark.triangle.fill"
+              android_material_icon_name="warning"
+              size={48}
+              color={colors.warning}
             />
             <Text style={styles.confirmTitle}>Cancelar Pedido?</Text>
             <Text style={styles.confirmText}>
               Tem certeza que deseja cancelar este pedido? Esta ação não pode ser desfeita.
             </Text>
             <View style={styles.confirmButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.confirmButton, styles.confirmButtonSecondary]}
                 onPress={() => setShowDeleteModal(false)}
                 disabled={deleting}
               >
                 <Text style={styles.confirmButtonTextSecondary}>Voltar</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.confirmButton, styles.confirmButtonDanger]}
                 onPress={handleDeleteOrder}
                 disabled={deleting}
@@ -446,17 +414,17 @@ export default function OrdersScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModal}>
-            <IconSymbol 
-              ios_icon_name="exclamationmark.circle.fill" 
-              android_material_icon_name="error" 
-              size={48} 
-              color={colors.error} 
+            <IconSymbol
+              ios_icon_name="exclamationmark.circle.fill"
+              android_material_icon_name="error"
+              size={48}
+              color={colors.error}
             />
             <Text style={styles.confirmTitle}>Erro</Text>
             <Text style={styles.confirmText}>
               {errorMessage}
             </Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.confirmButton, styles.confirmButtonDanger, { width: '100%' }]}
               onPress={() => setShowErrorModal(false)}
             >
