@@ -1,14 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
 import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
-import * as Print from 'expo-print';
-import mammoth from 'mammoth';
-import { Buffer } from 'buffer';
-
-// Polyfill Buffer for mammoth
-if (typeof global.Buffer === 'undefined') {
-  (global as any).Buffer = Buffer;
-}
 
 export interface PrintFile {
   uri: string;
@@ -18,9 +10,6 @@ export interface PrintFile {
 }
 
 export const getFileArrayBuffer = async (uri: string): Promise<ArrayBuffer> => {
-  // On web or some environments, fetch might be better, but for Expo FileSystem is standard
-  // However, the existing code uses fetch for efficiency with blobs/buffers in React Native sometimes.
-  // Let's stick to the efficient fetch method seen in quick-print.tsx
   const response = await fetch(uri);
   return await response.arrayBuffer();
 };
@@ -40,114 +29,58 @@ export const countPdfPages = async (uri: string): Promise<number> => {
 };
 
 export const convertImagesToPdf = async (images: PrintFile[]): Promise<string> => {
-  const platform = Platform.OS;
+  try {
+    const pdfDoc = await PDFDocument.create();
 
-  if (platform === 'ios') {
-    // iOS logic to convert images
-    try {
-      // Use expo-print to generate PDF from images
-      // This is a robust way to create a PDF from images on iOS
-      let htmlContent = '<html><body style="margin:0;padding:0;">';
+    for (const img of images) {
+      const imageBytes = await getFileArrayBuffer(img.uri);
+      let image;
 
-      for (const img of images) {
-        // Convert image to base64 to embed in HTML to ensure it renders
-        const base64 = await FileSystem.readAsStringAsync(img.uri, { encoding: FileSystem.EncodingType.Base64 });
-        const src = `data:image/jpeg;base64,${base64}`;
-        htmlContent += `<img src="${src}" style="width:100%;height:auto;display:block;page-break-after:always;" />`;
+      try {
+        // Try embedding as JPG first (most common for photos)
+        image = await pdfDoc.embedJpg(imageBytes);
+      } catch (e) {
+        // Fallback to PNG if JPG fails
+        try {
+          image = await pdfDoc.embedPng(imageBytes);
+        } catch (e2) {
+          console.warn(`Could not embed image ${img.name}:`, e2);
+          continue; // Skip image if it fails
+        }
       }
 
-      htmlContent += '</body></html>';
-
-      const { uri } = await Print.printToFileAsync({
-        html: htmlContent,
-        base64: false
-      });
-
-      return uri;
-    } catch (error) {
-      console.error('Error converting images to PDF:', error);
-      throw error;
-    }
-  } else {
-    // Android logic (can use pdf-lib or ensure print works)
-    // Reusing the same HTML print approach as it is cross-platform and reliable
-    try {
-      let htmlContent = '<html><body style="margin:0;padding:0;">';
-
-      for (const img of images) {
-        const base64 = await FileSystem.readAsStringAsync(img.uri, { encoding: FileSystem.EncodingType.Base64 });
-        const src = `data:image/jpeg;base64,${base64}`;
-        htmlContent += `<img src="${src}" style="width:100%;height:auto;display:block;page-break-after:always;" />`;
+      if (image) {
+        const page = pdfDoc.addPage([image.width, image.height]);
+        page.drawImage(image, {
+          x: 0,
+          y: 0,
+          width: image.width,
+          height: image.height,
+        });
       }
-
-      htmlContent += '</body></html>';
-
-      const { uri } = await Print.printToFileAsync({
-        html: htmlContent,
-        base64: false
-      });
-
-      return uri;
-    } catch (error) {
-      console.error('Error converting images to PDF android:', error);
-      throw error;
     }
+
+    const pdfBase64 = await pdfDoc.saveAsBase64();
+    const uri = FileSystem.documentDirectory + `converted_images_${Date.now()}.pdf`;
+    await FileSystem.writeAsStringAsync(uri, pdfBase64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    return uri;
+  } catch (error) {
+    console.error('Error converting images to PDF:', error);
+    throw error;
   }
 };
 
 /**
  * Converts a Word document (.docx) to PDF
- * Uses mammoth to convert to HTML, then expo-print to convert HTML to PDF
+ * Currently disabled as it requires external libraries not present in the native build.
+ * Throws error to trigger fallback estimation logic in the UI.
  */
 export const convertWordToPdf = async (uri: string): Promise<string> => {
-  try {
-    console.log('Converting Word to PDF:', uri);
-
-    // Read file as Base64 to create Buffer
-    const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    const buffer = Buffer.from(base64, 'base64');
-
-    // Convert Docx to HTML
-    const result = await mammoth.convertToHtml({ buffer: buffer });
-    const html = result.value;
-    const messages = result.messages; // Any warnings
-
-    if (messages && messages.length > 0) {
-      console.log('Mammoth warnings:', messages);
-    }
-
-    // Wrap HTML in a clean structure for printing
-    const fullHtml = `
-      <html>
-        <head>
-          <style>
-            body { font-family: 'Helvetica', 'Arial', sans-serif; padding: 20px; }
-            p { margin-bottom: 10px; line-height: 1.5; }
-            table { border-collapse: collapse; width: 100%; }
-            td, th { border: 1px solid #ddd; padding: 8px; }
-          </style>
-        </head>
-        <body>
-          ${html}
-        </body>
-      </html>
-    `;
-
-    // Print HTML to PDF
-    const { uri: pdfUri } = await Print.printToFileAsync({
-      html: fullHtml,
-      base64: false,
-    });
-
-    console.log('Word converted to PDF at:', pdfUri);
-    return pdfUri;
-  } catch (error) {
-    console.error('Error in convertWordToPdf:', error);
-    throw new Error('Falha ao converter arquivo Word para PDF.');
-  }
+  // Gracefully throw to trigger the fallback UI
+  throw new Error('Word conversion not supported locally');
 };
 
 export interface PricingConfig {
@@ -164,3 +97,4 @@ export const calculatePrintCost = (
   const pricePerPage = colorMode === 'color' ? config.colorPrice : config.bwPrice;
   return pricePerPage * pages * copies;
 };
+
