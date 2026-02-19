@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { WebView } from 'react-native-webview'; // Essential for PDF preview
-import { IconSymbol } from '@/components/ui/IconSymbol';
+import { IconSymbol } from '@/components/IconSymbol';
 import { Colors } from '@/constants/Colors';
 import { countPdfPages, convertImagesToPdf, convertWordToPdf, PrintFile } from '@/utils/printService';
 import { uploadMultipleFilesWithPageCount, authenticatedPost } from '@/utils/api';
